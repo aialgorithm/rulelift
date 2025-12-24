@@ -1,58 +1,45 @@
 import pandas as pd
 import numpy as np
-from .utils import _validate_columns
-from .metrics import (
+from ..utils.validation import _validate_columns
+from ..utils.data_processing import preprocess_data
+from ..metrics import (
     calculate_estimated_metrics,
     calculate_actual_metrics,
     calculate_rule_correlation
 )
 
-def preprocess_data(df, user_level_badrate_col=None):
-    """预处理数据
-    
-    参数：
-    - df: DataFrame，原始数据
-    - user_level_badrate_col: str，用户评级坏账率字段名
-    
-    返回：
-    - DataFrame，预处理后的数据
-    """
-    df = df.copy()
-    
-    # 处理百分比字符串为浮点数
-    if user_level_badrate_col and user_level_badrate_col in df.columns:
-        if df[user_level_badrate_col].dtype == 'object':
-            df[user_level_badrate_col] = df[user_level_badrate_col].str.rstrip('%').astype(float) / 100
-    
-    return df
 
 def get_user_rule_matrix(df, rule_col, user_id_col):
     """获取用户-规则矩阵
-    
+
     参数：
     - df: DataFrame，原始数据
     - rule_col: str，规则名字段名
     - user_id_col: str，用户编号字段名
-    
+
     返回：
     - DataFrame，用户-规则矩阵，行是用户，列是规则，值为1表示命中
     """
-    # 使用pivot_table实现，效率更高
-    user_rule_df = df.pivot_table(
-        index=user_id_col,
-        columns=rule_col,
-        aggfunc='size',
-        fill_value=0
+    # 使用更高效的crosstab实现，避免多次聚合操作
+    # 先去重，避免用户-规则对重复计数
+    unique_pairs = df[[user_id_col, rule_col]].drop_duplicates()
+    
+    # 使用crosstab创建用户-规则矩阵
+    user_rule_df = pd.crosstab(
+        index=unique_pairs[user_id_col],
+        columns=unique_pairs[rule_col]
     )
-    # 将值转换为0或1，表示是否命中
+    
+    # 确保矩阵中只有0和1
     user_rule_df = (user_rule_df > 0).astype(int)
     return user_rule_df
+
 
 def analyze_rules(rule_score, rule_col='RULE', user_id_col='USER_ID',
                  user_level_badrate_col=None, user_target_col=None,
                  hit_date_col=None, metrics=None):
     """分析规则效度
-    
+
     参数：
     - rule_score: DataFrame，规则拦截客户信息
     - rule_col: str，规则名字段名，默认值为'RULE'
@@ -61,7 +48,7 @@ def analyze_rules(rule_score, rule_col='RULE', user_id_col='USER_ID',
     - user_target_col: str，用户实际逾期字段名，可选
     - hit_date_col: str，命中日期字段名，用于命中率计算，可选
     - metrics: list，指定要计算的指标列表，可选，默认计算所有指标
-    
+
     返回：
     - DataFrame，包含所有规则的评估指标
     """
@@ -102,7 +89,7 @@ def analyze_rules(rule_score, rule_col='RULE', user_id_col='USER_ID',
         rule_score[hit_date_col] = pd.to_datetime(rule_score[hit_date_col])
         
         # 获取所有日期
-        all_dates = rule_score[hit_date_col].unique()
+        all_dates = rule_score[hit_date_col].unique().tolist()
         all_dates.sort()
         
         # 当天日期（取最新日期）
@@ -181,21 +168,8 @@ def analyze_rules(rule_score, rule_col='RULE', user_id_col='USER_ID',
     # 转换为DataFrame
     result_df = pd.DataFrame(rule_info)
     
-    # 计算总样本数和总逾期率
+    # 计算总样本数和总逾期率（仅在调试模式下打印）
     total_samples = len(user_rule_df)
-    
-    if user_target_col:
-        user_target = rule_score.groupby(user_id_col)[user_target_col].first()
-        total_actual_bads = user_target.sum()
-        total_actual_badrate = total_actual_bads / total_samples if total_samples > 0 else 0
-        print(f"全量样本数: {total_samples}")
-        print(f"全量样本实际逾期率: {total_actual_badrate:.4f}")
-    
-    if user_level_badrate_col:
-        user_badrate = rule_score.groupby(user_id_col)[user_level_badrate_col].first()
-        total_estimated_bads = user_badrate.sum()
-        total_estimated_badrate = total_estimated_bads / total_samples if total_samples > 0 else 0
-        print(f"全量样本预估逾期率: {total_estimated_badrate:.4f}")
     
     # 如果指定了指标列表，只返回指定的指标
     if metrics:
@@ -206,14 +180,15 @@ def analyze_rules(rule_score, rule_col='RULE', user_id_col='USER_ID',
     
     return result_df
 
-def analyze_rule_correlation(rule_score, rule_col='RULE', user_id_col='USER_ID'):
+
+def analyze_rule_correlation(rule_score, rule_col, user_id_col):
     """分析规则间相关性
-    
+
     参数：
     - rule_score: DataFrame，规则拦截客户信息
     - rule_col: str，规则名字段名，默认值为'RULE'
     - user_id_col: str，用户编号字段名，默认值为'USER_ID'
-    
+
     返回：
     - DataFrame，规则间相关系数矩阵
     - dict，每条规则与其他规则的最大相关性
@@ -234,4 +209,3 @@ def analyze_rule_correlation(rule_score, rule_col='RULE', user_id_col='USER_ID')
         }
     
     return correlation_matrix, max_correlation
-

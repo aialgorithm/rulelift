@@ -7,7 +7,7 @@ def calculate_psi(expected, actual, buckets=10):
     参数：
     - expected: Series，预期分布数据
     - actual: Series，实际分布数据
-    - buckets: int，分桶数量
+    - buckets: int，分箱数量
     
     返回：
     - float，PSI值
@@ -16,11 +16,11 @@ def calculate_psi(expected, actual, buckets=10):
     expected = pd.Series(expected)
     actual = pd.Series(actual)
     
-    # 分桶处理
+    # 分箱处理
     try:
-        # 使用等频分桶
+        # 使用等频分箱
         expected_ranks, bins = pd.qcut(expected, buckets, labels=False, duplicates='drop', retbins=True)
-        # 使用相同的分桶边界处理实际数据
+        # 使用相同的分箱边界处理实际数据
         actual_ranks = pd.cut(actual, bins=bins, labels=False, include_lowest=True)
     except ValueError:
         # 处理异常情况，如数据量过少
@@ -32,7 +32,7 @@ def calculate_psi(expected, actual, buckets=10):
     expected_dist = expected_ranks.value_counts(normalize=True).sort_index()
     actual_dist = actual_ranks.value_counts(normalize=True).sort_index()
     
-    # 合并分布，确保所有分桶都存在
+    # 合并分布，确保所有分箱都存在
     all_bins = sorted(set(expected_dist.index) | set(actual_dist.index))
     expected_dist = expected_dist.reindex(all_bins, fill_value=0)
     actual_dist = actual_dist.reindex(all_bins, fill_value=0)

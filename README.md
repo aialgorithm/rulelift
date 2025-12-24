@@ -322,7 +322,7 @@ aialgorithm <aialgorithm@example.com>
 
 ## 版本信息
 
-当前版本：0.3.0
+当前版本：1.1.1
 
 ## 项目地址
 
@@ -331,6 +331,7 @@ PyPI: https://pypi.org/project/rulelift/
 
 ## TODO
 - 整合多个规则的评估结果，形成策略级结论
+- 两两规则的效度增益
 - 规则全局增益
 - 增强实际场景数据处理能力
 - 结果展示&操作可视化
