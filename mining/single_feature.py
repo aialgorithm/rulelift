@@ -115,7 +115,7 @@ class SingleFeatureRuleMiner:
         
         # 对特征值进行分箱，获取阈值列表
         data = self.df[feature].dropna().values.reshape(-1, 1)
-        discretizer = KBinsDiscretizer(n_bins=n_bins, encode='ordinal', strategy='quantile', quantile_method='averaged_inverted_cdf')
+        discretizer = KBinsDiscretizer(n_bins=n_bins, encode='ordinal', strategy='quantile')
         discretizer.fit(data)
         
         # 获取分箱边界作为阈值

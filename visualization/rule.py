@@ -56,8 +56,8 @@ class RuleVisualizer:
         
         # 绘制每个指标的条形图
         for i, metric in enumerate(metrics):
-            # 修复FutureWarning：将x变量分配给hue并设置legend=False
-            sns.barplot(x='rule_description', y=metric, hue='rule_description', data=rules_df, ax=axes[i], palette='viridis', dodge=False, legend=False)
+            # 修复FutureWarning：将x变量分配给hue
+            sns.barplot(x='rule_description', y=metric, hue='rule_description', data=rules_df, ax=axes[i], palette='viridis', dodge=False)
             axes[i].set_ylabel(metric.capitalize())
             axes[i].set_title(f'Rule Comparison - {metric.capitalize()}')
             # 设置x轴标签旋转和对齐

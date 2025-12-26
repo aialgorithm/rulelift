@@ -86,7 +86,7 @@ def analyze_rules(rule_score, rule_col='RULE', user_id_col='USER_ID',
     # 计算命中率相关指标（仅当传入hit_date_col时执行）
     if hit_date_col:
         # 确保日期字段是datetime类型
-        rule_score[hit_date_col] = pd.to_datetime(rule_score[hit_date_col])
+        #rule_score[hit_date_col] = pd.to_datetime(rule_score[hit_date_col])
         
         # 获取所有日期
         all_dates = rule_score[hit_date_col].unique().tolist()

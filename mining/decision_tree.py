@@ -298,7 +298,11 @@ class DecisionTreeRuleExtractor:
         
         plt.figure(figsize=figsize)
         # 修复FutureWarning：将y变量分配给hue并设置legend=False
-        sns.barplot(x='importance', y='feature', hue='feature', data=feature_importance, palette='viridis', dodge=False, legend=False)
+        sns.barplot(x='importance', y='feature', hue='feature', data=feature_importance, palette='viridis', dodge=False)
+        # 仅在图例存在时移除它，避免警告
+        legend = plt.gca().get_legend()
+        if legend:
+            legend.remove()
         plt.title('Feature Importance from Decision Tree')
         plt.xlabel('Importance')
         plt.ylabel('Feature')
@@ -501,8 +505,7 @@ class DecisionTreeRuleExtractor:
             special_characters=True,
             impurity=True,
             node_ids=True,
-            proportion=True,
-            fontname='SimHei'  # 在export_graphviz中直接设置字体
+            proportion=True
         )
         
         # 添加全局字体设置到DOT数据

@@ -22,7 +22,7 @@ from .visualization import (
     generate_rule_report
 )
 
-__version__ = '1.1.2'
+__version__ = '1.1.5'
 __all__ = [
     # Utils
     'load_example_data',
