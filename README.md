@@ -501,8 +501,10 @@ aialgorithm <15880982687@qq.com>
 - 结果展示&操作可视化
 - 考虑敏感信息，暂无法支持AI大模型
 
+## 谢谢使用
 
+-----
 
+<img width="350" height="400" alt="e99495131259259f29088d333b51819" src="https://github.com/user-attachments/assets/b2611aa6-4ff8-40a3-88ba-867bb384a89d" />
 
-<img width="273" height="259" alt="image" src="https://github.com/user-attachments/assets/925325e4-bfe7-4186-be93-fd01248508b2" />
 
