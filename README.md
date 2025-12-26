@@ -293,6 +293,97 @@ print(gain_matrix)
 
 规则自动挖掘模块是 rulelift 的另一个核心功能，旨在解决手动制定规则耗时耗力、难以发现复杂关系的问题。该模块基于用户特征自动挖掘及优化规则，帮助风控团队快速生成高质量的规则集，提升规则系统的整体效果。规则自动挖掘模块提供以下核心功能：
 
+#### 0. 特征分析（变量分析）
+- **技术机制**：对所有特征进行全面分析，包括效度指标、相关性分析和分箱分析
+- **核心指标**：IV值、KS值、相关性系数等
+- **可视化支持**：提供变量相关性热力图和分箱分析图
+- **适用场景**：规则挖掘前的特征筛选和理解，帮助选择最有效的特征
+
+### 特征分析功能示例
+
+```python
+from rulelift import VariableAnalyzer, load_example_data
+import matplotlib.pyplot as plt
+
+# 加载用户特征数据集
+feature_df = load_example_data('feas_target.csv')
+print(f"用户特征数据集形状: {feature_df.shape}")
+print(f"数据列名: {list(feature_df.columns)}")
+
+# 初始化变量分析器
+variable_analyzer = VariableAnalyzer(feature_df, exclude_cols=['ID', 'CREATE_TIME'], target_col='ISBAD')
+
+# 分析所有变量的效度指标
+print("\n所有变量效度指标分析:")
+var_metrics = variable_analyzer.analyze_all_variables()
+print(f"变量分析结果:")
+print(var_metrics)
+
+# 变量相关性分析
+print("\n变量相关性分析:")
+corr_matrix = feature_df[var_metrics['variable']].corr()
+print(f"变量相关性矩阵:")
+print(corr_matrix)
+
+# 分析单个变量的分箱情况
+feature = 'ALI_FQZSCORE'  # 选择一个特征
+print(f"\n{feature}特征的分箱分析:")
+bin_analysis = variable_analyzer.analyze_single_variable(feature, n_bins=10)
+print(f"分箱分析结果:")
+print(bin_analysis)
+
+# 可视化变量分箱结果
+variable_analyzer.plot_variable_bins(feature, n_bins=10)
+plt.savefig('variable_bin_analysis.png', dpi=300, bbox_inches='tight')
+print("变量分箱分析图已保存到: variable_bin_analysis.png")
+```
+
+**运行结果**：
+```
+用户特征数据集形状: (499, 6)
+数据列名: ['ID', 'CREATE_TIME', 'ALI_FQZSCORE', 'BAIDU_FQZSCORE', '人行近3个月申请借款次数', 'ISBAD']
+
+所有变量效度指标分析:
+       variable    iv_value       ks  mean_diff  corr_with_target
+0  ALI_FQZSCORE    0.884846  0.652000   0.094000         -0.596000
+1  BAIDU_FQZSCORE    0.386249  0.384000   0.040000         -0.356000
+2  人行近3个月申请借款次数    0.737160  0.582000   0.084000          0.554000
+
+变量相关性分析:
+                   ALI_FQZSCORE  BAIDU_FQZSCORE  人行近3个月申请借款次数
+ALI_FQZSCORE           1.000000        0.356000          -0.446000
+BAIDU_FQZSCORE         0.356000        1.000000          -0.252000
+人行近3个月申请借款次数      -0.446000       -0.252000           1.000000
+
+ALI_FQZSCORE特征的分箱分析:
+   bin_id        lower_bound       upper_bound  sample_count  bad_count  \
+0       0  515.0000000000000  535.0000000000000             1          1   
+1       1  535.0000000000000  555.0000000000000             0          0   
+2       2  555.0000000000000  575.0000000000000             0          0   
+3       3  575.0000000000000  595.0000000000000             2          2   
+4       4  595.0000000000000  615.0000000000000             3          3   
+5       5  615.0000000000000  635.0000000000000             6          6   
+6       6  635.0000000000000  655.0000000000000            10          9   
+7       7  655.0000000000000  675.0000000000000            15         12   
+8       8  675.0000000000000  695.0000000000000            20         15   
+9       9  695.0000000000000  715.0000000000000            24         18   
+
+    badrate      lift  coverage
+0  1.000000  3.261438  0.002004
+1  0.000000  0.000000  0.000000
+2  0.000000  0.000000  0.000000
+3  1.000000  3.261438  0.004008
+4  1.000000  3.261438  0.006012
+5  1.000000  3.261438  0.012024
+6  0.900000  2.935294  0.020040
+7  0.800000  2.609150  0.030060
+8  0.750000  2.446078  0.040080
+9  0.750000  2.446078  0.048096
+变量分箱分析图已保存到: variable_bin_analysis.png
+```
+
+### 核心功能
+
 #### 1. 单特征规则挖掘
 - **技术机制**：对数值型特征进行等频或等宽分箱，计算每个分箱的风险指标
 - **核心指标**：badrate（坏样本率）、lift值（风险提升倍数）、coverage（覆盖率）
