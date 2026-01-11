@@ -7,6 +7,10 @@ from ..metrics import (
     calculate_actual_metrics,
     calculate_rule_correlation
 )
+from ..metrics.stability import (
+    calculate_rule_stability,
+    calculate_long_term_stability
+)
 
 
 def get_user_rule_matrix(df, rule_col, user_id_col):
@@ -37,7 +41,7 @@ def get_user_rule_matrix(df, rule_col, user_id_col):
 
 def analyze_rules(rule_score, rule_col='RULE', user_id_col='USER_ID',
                  user_level_badrate_col=None, user_target_col=None,
-                 hit_date_col=None, metrics=None):
+                 hit_date_col=None, metrics=None, include_stability=True):
     """分析规则效度
 
     参数：
@@ -48,6 +52,7 @@ def analyze_rules(rule_score, rule_col='RULE', user_id_col='USER_ID',
     - user_target_col: str，用户实际逾期字段名，可选
     - hit_date_col: str，命中日期字段名，用于命中率计算，可选
     - metrics: list，指定要计算的指标列表，可选，默认计算所有指标
+    - include_stability: bool，是否包含稳定性指标，默认为True
 
     返回：
     - DataFrame，包含所有规则的评估指标
@@ -74,6 +79,7 @@ def analyze_rules(rule_score, rule_col='RULE', user_id_col='USER_ID',
     actual_metrics = {}
     hit_rate_metrics = {}
     correlation_metrics = {}
+    stability_metrics = {}
     
     # 计算预估指标
     if user_level_badrate_col:
@@ -134,19 +140,27 @@ def analyze_rules(rule_score, rule_col='RULE', user_id_col='USER_ID',
         hit_rate_stds = all_daily_hit_rates_df.std(axis=0)
         hit_rate_cv = hit_rate_stds / hit_rate_means
         
+        # 计算命中率变化率
+        hit_rate_change_rate = (current_hit_rates - base_hit_rates) / base_hit_rates
+        
         # 整合命中率指标
         for rule in user_rule_df.columns:
             hit_rate_metrics[rule] = {
                 'base_hit_rate': base_hit_rates.get(rule, 0),
                 'current_hit_rate': current_hit_rates.get(rule, 0),
-                'hit_rate_cv': hit_rate_cv.get(rule, 0)
+                'hit_rate_cv': hit_rate_cv.get(rule, 0),
+                'hit_rate_change_rate': hit_rate_change_rate.get(rule, 0)
             }
+        
+        # 计算稳定性指标（仅当传入hit_date_col且include_stability为True时执行）
+        if include_stability:
+            stability_metrics = calculate_rule_stability(rule_score, rule_col, hit_date_col, user_id_col)
     
     # 计算规则相关性指标
     _, correlation_metrics = analyze_rule_correlation(rule_score, rule_col, user_id_col)
     
     # 整合所有指标
-    all_rules = set(estimated_metrics.keys()) | set(actual_metrics.keys()) | set(hit_rate_metrics.keys()) | set(correlation_metrics.keys())
+    all_rules = set(estimated_metrics.keys()) | set(actual_metrics.keys()) | set(hit_rate_metrics.keys()) | set(correlation_metrics.keys()) | set(stability_metrics.keys())
     
     rule_info = []
     for rule in all_rules:
@@ -156,7 +170,8 @@ def analyze_rules(rule_score, rule_col='RULE', user_id_col='USER_ID',
             **estimated_metrics.get(rule, {}),
             **actual_metrics.get(rule, {}),
             **hit_rate_metrics.get(rule, {}),
-            **correlation_metrics.get(rule, {})
+            **correlation_metrics.get(rule, {}),
+            **stability_metrics.get(rule, {})
         }
         
         # 移除不需要的指标

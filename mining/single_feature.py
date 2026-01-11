@@ -16,7 +16,8 @@ class SingleFeatureRuleMiner:
         features: 待分析的特征列表
     """
     
-    def __init__(self, df: pd.DataFrame, exclude_cols: List[str] = None, target_col: str = 'ISBAD'):
+    def __init__(self, df: pd.DataFrame, exclude_cols: List[str] = None, target_col: str = 'ISBAD', 
+                 amount_col: str = None, ovd_bal_col: str = None):
         """
         初始化单特征规则挖掘器
         
@@ -24,13 +25,21 @@ class SingleFeatureRuleMiner:
             df: 输入的数据集
             exclude_cols: 排除的字段名列表
             target_col: 目标字段名，默认为'ISBAD'
+            amount_col: 金额字段名，默认为None
+            ovd_bal_col: 逾期金额字段名，默认为None
         """
         self.df = df.copy()
         self.target_col = target_col
+        self.amount_col = amount_col
+        self.ovd_bal_col = ovd_bal_col
         
         # 排除指定字段和非数值字段
         self.exclude_cols = exclude_cols if exclude_cols else []
         self.exclude_cols.append(self.target_col)
+        if self.amount_col:
+            self.exclude_cols.append(self.amount_col)
+        if self.ovd_bal_col:
+            self.exclude_cols.append(self.ovd_bal_col)
         
         # 筛选出数值型特征
         self.features = [col for col in self.df.columns 
@@ -82,6 +91,28 @@ class SingleFeatureRuleMiner:
         # F1分数
         f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
         
+        # 计算损失率指标（如果有amount_col和ovd_bal_col）
+        loss_rate = 0.0
+        loss_lift = 0.0
+        
+        if self.amount_col and self.ovd_bal_col and self.amount_col in self.df.columns and self.ovd_bal_col in self.df.columns:
+            # 计算选中样本的损失率
+            selected_df = selected[[self.amount_col, self.ovd_bal_col, self.target_col]].dropna()
+            if len(selected_df) > 0:
+                total_amount_selected = selected_df[self.amount_col].sum()
+                if total_amount_selected > 0:
+                    total_ovd_bal_bad_selected = selected_df[selected_df[self.target_col] == 1][self.ovd_bal_col].sum()
+                    loss_rate = total_ovd_bal_bad_selected / total_amount_selected
+                    
+                    # 计算整体损失率
+                    overall_df = self.df[[self.amount_col, self.ovd_bal_col, self.target_col]].dropna()
+                    if len(overall_df) > 0:
+                        total_amount_overall = overall_df[self.amount_col].sum()
+                        if total_amount_overall > 0:
+                            total_ovd_bal_overall = overall_df[self.ovd_bal_col].sum()
+                            overall_loss_rate = total_ovd_bal_overall / total_amount_overall
+                            loss_lift = loss_rate / overall_loss_rate if overall_loss_rate > 0 else 0.0
+        
         return {
             'feature': feature,
             'threshold': threshold,
@@ -96,7 +127,9 @@ class SingleFeatureRuleMiner:
             'lift': lift,
             'recall': recall,
             'precision': precision,
-            'f1': f1
+            'f1': f1,
+            'loss_rate': loss_rate,
+            'loss_lift': loss_lift
         }
     
     def analyze_feature(self, feature: str, n_bins: int = 20) -> pd.DataFrame:
@@ -121,11 +154,18 @@ class SingleFeatureRuleMiner:
         # 获取分箱边界作为阈值
         thresholds = sorted(set(discretizer.bin_edges_[0]))
         
-        # 对每个阈值计算>=和<=两种情况的指标
+        # 过滤掉最小值和最大值，避免无意义的规则
+        if len(thresholds) > 2:
+            thresholds = thresholds[1:-1]  # 去掉最小值和最大值
+        
+        # 对每个阈值智能选择操作符，避免无意义规则
         results = []
-        for threshold in thresholds:
-            results.append(self._calculate_metrics(feature, threshold, '>='))
-            results.append(self._calculate_metrics(feature, threshold, '<='))
+        for i, threshold in enumerate(thresholds):
+            # 只计算有意义的方向
+            if i > 0:  # 不是最小值，可以计算<=
+                results.append(self._calculate_metrics(feature, threshold, '<='))
+            if i < len(thresholds) - 1:  # 不是最大值，可以计算>=
+                results.append(self._calculate_metrics(feature, threshold, '>='))
         
         return pd.DataFrame(results)
     
@@ -236,7 +276,8 @@ class SingleFeatureRuleMiner:
         """
         return self.plot_threshold_analysis(feature, metric=metric, n_bins=num_bins, figsize=figsize)
     
-    def get_top_rules(self, feature: str = None, top_n: int = 10, metric: str = 'lift') -> pd.DataFrame:
+    def get_top_rules(self, feature: str = None, top_n: int = 10, metric: str = 'lift', 
+                    min_samples: int = 10) -> pd.DataFrame:
         """
         获取单个特征的top规则或所有特征的top规则
         
@@ -244,6 +285,7 @@ class SingleFeatureRuleMiner:
             feature: 特征名，默认为None（获取所有特征的top规则）
             top_n: 返回的规则数量，默认为10
             metric: 排序指标，默认为'lift'
+            min_samples: 最小样本数过滤，默认为10
             
         返回:
             包含top规则的DataFrame
@@ -251,6 +293,15 @@ class SingleFeatureRuleMiner:
         if feature is not None:
             # 获取单个特征的top规则
             feature_results = self.analyze_feature(feature)
+            
+            # 过滤样本数过少的规则
+            if 'selected_samples' in feature_results.columns:
+                feature_results = feature_results[feature_results['selected_samples'] >= min_samples]
+            
+            # 过滤lift接近1的规则（无区分度）
+            if 'lift' in feature_results.columns:
+                feature_results = feature_results[feature_results['lift'] > 1.1]
+            
             top_rules = feature_results.sort_values(by=metric, ascending=False).head(top_n)
             
             # 添加规则描述
@@ -267,6 +318,15 @@ class SingleFeatureRuleMiner:
             # 获取所有特征的top规则
             all_results = self.analyze_all_features()
             df_all = pd.concat(all_results.values(), ignore_index=True)
+            
+            # 过滤样本数过少的规则
+            if 'selected_samples' in df_all.columns:
+                df_all = df_all[df_all['selected_samples'] >= min_samples]
+            
+            # 过滤lift接近1的规则（无区分度）
+            if 'lift' in df_all.columns:
+                df_all = df_all[df_all['lift'] > 1.1]
+            
             top_rules = df_all.sort_values(by=metric, ascending=False).head(top_n)
             
             # 添加规则描述

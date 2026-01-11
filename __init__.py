@@ -9,7 +9,9 @@ from .analysis import (
 from .mining import (
     SingleFeatureRuleMiner,
     MultiFeatureRuleMiner,
-    DecisionTreeRuleExtractor
+    DecisionTreeRuleExtractor,
+    XGBoostRuleMiner,
+    TreeRuleExtractor
 )
 from .visualization import (
     RuleVisualizer,
@@ -22,7 +24,7 @@ from .visualization import (
     generate_rule_report
 )
 
-__version__ = '1.1.5'
+__version__ = '1.2.2'
 __all__ = [
     # Utils
     'load_example_data',
@@ -39,6 +41,8 @@ __all__ = [
     'SingleFeatureRuleMiner',
     'MultiFeatureRuleMiner',
     'DecisionTreeRuleExtractor',
+    'XGBoostRuleMiner',
+    'TreeRuleExtractor',
     
     # Visualization
     'RuleVisualizer',
@@ -50,4 +54,3 @@ __all__ = [
     'plot_heatmap',
     'generate_rule_report'
 ]
-

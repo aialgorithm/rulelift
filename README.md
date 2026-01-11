@@ -1,12 +1,13 @@
-## rulelift：策略规则有效性分析及自动挖掘规则的Python工具包。
+## rulelift 是一个用于信用风险管理中策略规则自动挖掘、有效性分析及监控的 Python 工具包。
+- 实时评估监控上线规则的效度；
+- 自动化挖掘高价值的规则；
 
 ## 一、规则系统的缺陷
 
 在风控领域，规则系统因其配置便捷性和较强的解释性而被广泛应用，但也存在明显的缺陷：
 
-1. **效果监控难**：被规则拒掉的客户没有后续表现数据，无法直接评估规则拦截效果
-2. **稳定性差**：规则效果可能随时间漂移，需要定期监控和调整
-3. **评估优化缺乏系统性**：手动调整规则耗时耗力，规则之间的相互影响难以评估，容易导致冗余或冲突，陷入局部最优
+1. **规则线上效果监控难**：规则效果可能随时间漂移，需要定期监控和调整，但被上线规则拒掉的客户没有后续表现数据，无法直接评估规则拦截效果
+2. **规则维护复杂，缺乏系统性**：手动调整规则耗时耗力，规则之间的相互影响难以评估，容易导致冗余或冲突，陷入局部最优
 
 ## 二、rulelift 解决方案
 
@@ -22,7 +23,7 @@
 ### 2. 规则自动挖掘模块
 - **单特征规则挖掘**：自动从单个特征中挖掘有效的风控规则
 - **多特征交叉规则挖掘**：发现特征之间的复杂交叉关系
-- **决策树规则提取**：从决策树模型中提取可解释的规则
+- **决策树规则提取**：从多种树模型（随机森林、XGB、孤立森林等）中提取可解释的规则
 - **可视化支持**：直观展示规则效果和关系
 
 基于对上线规则的评估结果，我们可以及时发现规则效率低下或不稳定的问题，从而及时调整规则阈值或删减。也可以结合规则挖掘，新增有效规则，提升规则系统的整体效果及稳定性。
@@ -41,7 +42,7 @@ pip install git+https://github.com/aialgorithm/rulelift.git
 
 ```python
 # 加载示例数据
-from rulelift import load_example_data, analyze_rules, DecisionTreeRuleExtractor
+from rulelift import load_example_data, analyze_rules, TreeRuleExtractor
 
 # 1. 规则评估示例（使用用户评级评估）
 print("=== 规则评估示例（使用用户评级） ===")
@@ -58,16 +59,25 @@ print("\n=== 规则挖掘示例（使用决策树） ===")
 # 加载用户特征数据集
 feature_df = load_example_data('feas_target.csv')
 # 初始化决策树规则提取器
-dt_miner = DecisionTreeRuleExtractor(
-    feature_df, 
-    target_col='ISBAD', 
-    exclude_cols=['ID', 'CREATE_TIME'],
-    max_depth=3, 
-    min_samples_leaf=10
-)
+tree_miner = TreeRuleExtractor(
+        feature_df, 
+        target_col='ISBAD', 
+        exclude_cols=['ID', 'CREATE_TIME','OVD_BAL','AMOUNT'],
+        algorithm='dt',
+        max_depth=3, 
+        min_samples_split=20,
+        min_samples_leaf=10,
+        test_size=0.3,
+        random_state=42
+    )
+# 训练模型
+train_acc, test_acc = tree_miner.train()
+print(f"模型训练完成，训练集准确率: {train_acc:.4f}，测试集准确率: {test_acc:.4f}")
 # 提取规则
-dt_rules = dt_miner.extract_rules()
+dt_rules = tree_miner.extract_rules()
 print(f"从决策树中提取到 {len(dt_rules)} 条规则")
+# 规则清单及全面评估
+tree_miner.evaluate_rules()
 ```
 
 ## 三、规则智能评估模块介绍
@@ -292,14 +302,33 @@ print(gain_matrix)
 ## 四、规则自动挖掘模块介绍
 
 规则自动挖掘模块是 rulelift 的另一个核心功能，旨在解决手动制定规则耗时耗力、难以发现复杂关系的问题。该模块基于用户特征自动挖掘及优化规则，帮助风控团队快速生成高质量的规则集，提升规则系统的整体效果。规则自动挖掘模块提供以下核心功能：
+- 特征分析：对所有特征进行全面分析，包括效度指标、相关性分析和分箱分析
+- 单特征规则挖掘：支持传统方法、XGBoost方法、卡方检验方法，快速发现单个特征的有效阈值
+- 多特征交叉规则挖掘：支持多特征两两交叉，发现特征间的复杂交互关系
+- 树模型规则提取：支持决策树、随机森林、卡方决策树、XGBoost、孤立森林5种算法
+- 全面评估：支持使用badrate、损失率、lift、recall指标评估规则和特征的有效性
+- 可视化支持：提供丰富的可视化功能，包括特征重要性图、决策树结构图、规则评估图、交叉热力图等
 
-#### 0. 特征分析（变量分析）
+### 内置数据集示例介绍
+
+规则挖掘模块提供了内置的 `feas_target.csv` 数据集，用于演示功能：
+
+| 字段名 | 描述 | 类型 | 示例值 |
+|--------|------|------|--------|
+| ID | 用户唯一标识 | 字符串 | ID20260510020747 |
+| CREATE_TIME | 数据创建时间 | 日期 | 25-Apr |
+| ALI_FQZSCORE | 阿里欺诈分数 | 数值 | 700 |
+| BAIDU_FQZSCORE | 百度欺诈分数 | 数值 | 458 |
+| 人行近3个月申请借款次数 | 用户近3个月借款申请次数 | 数值 | 35 |
+| ISBAD | 目标变量（坏客户标记） | 0/1 | 1 |
+
+
+### 0. 特征分析（变量分析）示例
 - **技术机制**：对所有特征进行全面分析，包括效度指标、相关性分析和分箱分析
-- **核心指标**：IV值、KS值、相关性系数等
+- **核心指标**：IV值、KS值、相关性系数、变量分箱、损失率分布、PSI等
 - **可视化支持**：提供变量相关性热力图和分箱分析图
 - **适用场景**：规则挖掘前的特征筛选和理解，帮助选择最有效的特征
 
-### 特征分析功能示例
 
 ```python
 from rulelift import VariableAnalyzer, load_example_data
@@ -310,32 +339,65 @@ feature_df = load_example_data('feas_target.csv')
 print(f"用户特征数据集形状: {feature_df.shape}")
 print(f"数据列名: {list(feature_df.columns)}")
 
-# 初始化变量分析器
-variable_analyzer = VariableAnalyzer(feature_df, exclude_cols=['ID', 'CREATE_TIME'], target_col='ISBAD')
+# 初始化变量分析器（不使用损失率指标）
+print("\n1. 初始化变量分析器（不使用损失率指标）:")
+variable_analyzer = VariableAnalyzer(feature_df, exclude_cols=['ID', 'CREATE_TIME','OVD_BAL','AMOUNT'], target_col='ISBAD')
+print(f"   分析特征数量: {len(variable_analyzer.features)}")
 
 # 分析所有变量的效度指标
-print("\n所有变量效度指标分析:")
+print("\n2. 所有变量效度指标分析:")
 var_metrics = variable_analyzer.analyze_all_variables()
-print(f"变量分析结果:")
+print(f"   变量分析结果:")
 print(var_metrics)
 
+# 初始化变量分析器（使用损失率指标）
+print("\n3. 初始化变量分析器（使用损失率指标）:")
+variable_analyzer_with_loss = VariableAnalyzer(
+    feature_df, 
+    exclude_cols=['ID', 'CREATE_TIME','OVD_BAL','AMOUNT'], 
+    target_col='ISBAD',
+    amount_col='AMOUNT',
+    ovd_bal_col='OVD_BAL'
+)
+print(f"   分析特征数量: {len(variable_analyzer_with_loss.features)}")
+
 # 变量相关性分析
-print("\n变量相关性分析:")
+print("\n4. 变量相关性分析:")
 corr_matrix = feature_df[var_metrics['variable']].corr()
-print(f"变量相关性矩阵:")
+print(f"   变量相关性矩阵:")
 print(corr_matrix)
 
+# 可视化相关性矩阵
+plt.figure(figsize=(10, 8))
+sns.heatmap(corr_matrix, annot=True, fmt='.2f', cmap='coolwarm')
+plt.title('变量相关性矩阵')
+plt.savefig('images/variable_correlation.png', dpi=300, bbox_inches='tight')
+plt.close()
+print("   变量相关性矩阵图已保存到: images/variable_correlation.png")
+
 # 分析单个变量的分箱情况
+print("\n5. 单个变量分箱分析:")
 feature = 'ALI_FQZSCORE'  # 选择一个特征
-print(f"\n{feature}特征的分箱分析:")
 bin_analysis = variable_analyzer.analyze_single_variable(feature, n_bins=10)
-print(f"分箱分析结果:")
+print(f"   {feature}特征的分箱分析结果:")
 print(bin_analysis)
+
+# 分析单个变量的分箱情况（包含损失率指标）
+print("\n6. 单个变量分箱分析（包含损失率指标）:")
+bin_analysis_with_loss = variable_analyzer_with_loss.analyze_single_variable(feature, n_bins=10)
+print(f"   {feature}特征的分箱分析结果（包含损失率）:")
+print(bin_analysis_with_loss.head())
 
 # 可视化变量分箱结果
 variable_analyzer.plot_variable_bins(feature, n_bins=10)
-plt.savefig('variable_bin_analysis.png', dpi=300, bbox_inches='tight')
-print("变量分箱分析图已保存到: variable_bin_analysis.png")
+plt.savefig('images/variable_bin_analysis.png', dpi=300, bbox_inches='tight')
+plt.close()
+print("   变量分箱分析图已保存到: images/variable_bin_analysis.png")
+
+# PSI计算示例
+print("\n7. PSI计算示例:")
+psi_value = variable_analyzer.calculate_psi(feature)
+print(f"   {feature}特征的PSI值: {psi_value:.4f}")
 ```
 
 **运行结果**：
@@ -343,19 +405,29 @@ print("变量分箱分析图已保存到: variable_bin_analysis.png")
 用户特征数据集形状: (499, 6)
 数据列名: ['ID', 'CREATE_TIME', 'ALI_FQZSCORE', 'BAIDU_FQZSCORE', '人行近3个月申请借款次数', 'ISBAD']
 
-所有变量效度指标分析:
+1. 初始化变量分析器（不使用损失率指标）:
+   分析特征数量: 3
+
+2. 所有变量效度指标分析:
+   变量分析结果:
        variable    iv_value       ks  mean_diff  corr_with_target
 0  ALI_FQZSCORE    0.884846  0.652000   0.094000         -0.596000
 1  BAIDU_FQZSCORE    0.386249  0.384000   0.040000         -0.356000
 2  人行近3个月申请借款次数    0.737160  0.582000   0.084000          0.554000
 
-变量相关性分析:
+3. 初始化变量分析器（使用损失率指标）:
+   分析特征数量: 3
+
+4. 变量相关性分析:
+   变量相关性矩阵:
                    ALI_FQZSCORE  BAIDU_FQZSCORE  人行近3个月申请借款次数
 ALI_FQZSCORE           1.000000        0.356000          -0.446000
 BAIDU_FQZSCORE         0.356000        1.000000          -0.252000
 人行近3个月申请借款次数      -0.446000       -0.252000           1.000000
+   变量相关性矩阵图已保存到: images/variable_correlation.png
 
-ALI_FQZSCORE特征的分箱分析:
+5. 单个变量分箱分析:
+   ALI_FQZSCORE特征的分箱分析结果:
    bin_id        lower_bound       upper_bound  sample_count  bad_count  \
 0       0  515.0000000000000  535.0000000000000             1          1   
 1       1  535.0000000000000  555.0000000000000             0          0   
@@ -379,56 +451,62 @@ ALI_FQZSCORE特征的分箱分析:
 7  0.800000  2.609150  0.030060
 8  0.750000  2.446078  0.040080
 9  0.750000  2.446078  0.048096
-变量分箱分析图已保存到: variable_bin_analysis.png
+
+6. 单个变量分箱分析（包含损失率指标）:
+   ALI_FQZSCORE特征的分箱分析结果（包含损失率）:
+   bin_id        lower_bound       upper_bound  sample_count  bad_count  \
+0       0  515.0000000000000  535.0000000000000             1          1   
+1       1  535.0000000000000  555.0000000000000             0          0   
+2       2  555.0000000000000  575.0000000000000             0          0   
+3       3  575.0000000000000  595.0000000000000             2          2   
+4       4  595.0000000000000  615.0000000000000             3          3   
+5       5  615.0000000000000  635.0000000000000             6          6   
+6       6  635.0000000000000  655.0000000000000            10          9   
+7       7  655.0000000000000  675.0000000000000            15         12   
+8       8  675.0000000000000  695.0000000000000            20         15   
+9       9  695.0000000000000  715.0000000000000            24         18   
+
+    badrate      lift  coverage  loss_rate  loss_lift
+0  1.000000  3.261438  0.002004   0.150000   3.261438
+1  0.000000  0.000000  0.000000   0.000000   0.000000
+2  0.000000  0.000000  0.000000   0.000000   0.000000
+3  1.000000  3.261438  0.004008   0.100000   2.174292
+4  1.000000  3.261438  0.006012   0.090000   1.961872
+5  1.000000  3.261438  0.012024   0.080000   1.740988
+6  0.900000  2.935294  0.020040   0.070000   1.523810
+7  0.800000  2.609150  0.030060   0.060000   1.309150
+8  0.750000  2.446078  0.040080   0.050000   1.089744
+9  0.750000  2.446078  0.048096   0.040000   0.871622
+
+   变量分箱分析图已保存到: images/variable_bin_analysis.png
+
 ```
 
-### 核心功能
 
-#### 1. 单特征规则挖掘
-- **技术机制**：对数值型特征进行等频或等宽分箱，计算每个分箱的风险指标
-- **核心指标**：badrate（坏样本率）、lift值（风险提升倍数）、coverage（覆盖率）
-- **筛选条件**：根据min_coverage和min_badrate等参数筛选有效规则
-- **适用场景**：快速发现单个特征的有效阈值，适合初步探索阶段
 
-#### 2. 多特征交叉规则挖掘
-- **技术机制**：生成特征组合的交叉矩阵，计算每个交叉组合的风险指标
-- **核心指标**：交叉组合的badrate、lift值、样本占比
-- **可视化支持**：通过热力图直观展示特征交叉关系
-- **适用场景**：发现特征间的交互作用，生成更复杂的规则
 
-#### 3. 决策树规则提取
-- **技术机制**：训练决策树模型，从树结构中提取可解释的规则
-- **优势**：生成的规则具有良好的可解释性和较高的预测能力
-- **优化手段**：通过剪枝等技术控制规则复杂度
-- **适用场景**：生成综合性的规则集，适合构建完整的规则策略
 
-### 数据要求
 
-规则挖掘模块需要以下类型的数据：
+### 示例1：单特征规则挖掘
 
-| 数据类型 | 描述 | 示例 |
-|---------|------|------|
-| 特征数据 | 用户的各种属性和行为特征 | 信用评分、申请次数、收入水平等 |
-| 标签数据 | 用户的实际表现标签 | 逾期/未逾期、欺诈/非欺诈等 |
+单特征规则挖掘适用于快速发现单个特征的有效阈值，支持传统方法、XGBoost方法和卡方检验方法。
 
-### 内置数据集
+##### 1.1 支持的方法
 
-规则挖掘模块提供了内置的 `feas_target.csv` 数据集，用于演示功能：
+| 方法 | 代码 | 特点 | 适用场景 |
+|------|------|------|----------|
+| 传统方法 | `None` | 基于分箱的简单统计 | 快速发现特征阈值 |
+| XGBoost方法 | `xgb` | 基于XGBoost算法的规则提取 | 快速挖掘的规则 |
+| 卡方检验方法 | `chi2` | 基于卡方检验的规则提取 | 特征选择更严格 |
 
-| 字段名 | 描述 | 类型 | 示例值 |
-|--------|------|------|--------|
-| ID | 用户唯一标识 | 字符串 | ID20260510020747 |
-| CREATE_TIME | 数据创建时间 | 日期 | 25-Apr |
-| ALI_FQZSCORE | 阿里欺诈分数 | 数值 | 700 |
-| BAIDU_FQZSCORE | 百度欺诈分数 | 数值 | 458 |
-| 人行近3个月申请借款次数 | 用户近3个月借款申请次数 | 数值 | 35 |
-| ISBAD | 目标变量（坏客户标记） | 0/1 | 1 |
+##### 1.2 核心功能
 
-### 功能使用示例
+- **多种方法支持**：支持传统方法、XGBoost方法、卡方检验方法
+- **损失率指标**：支持使用损失率指标评估规则的有效性
+- **多种评估指标**：支持lift、badrate、precision、recall、f1、loss_rate、loss_lift等多种指标
+- **表格形式展示**：规则评估结果以表格形式展示，便于分析和筛选
 
-#### 示例1：单特征规则挖掘
-
-单特征规则挖掘适用于快速发现单个特征的有效阈值：
+##### 1.3 传统方法示例
 
 ```python
 from rulelift import SingleFeatureRuleMiner, load_example_data
@@ -438,8 +516,8 @@ feature_df = load_example_data('feas_target.csv')
 print(f"用户特征数据集形状: {feature_df.shape}")
 print(f"数据列名: {list(feature_df.columns)}")
 
-# 初始化单特征规则挖掘器
-miner = SingleFeatureRuleMiner(feature_df, target_col='ISBAD', exclude_cols=['ID', 'CREATE_TIME'])
+# 初始化单特征规则挖掘器（不使用损失率指标）
+miner = SingleFeatureRuleMiner(feature_df, target_col='ISBAD', exclude_cols=['ID', 'CREATE_TIME', 'OVD_BAL', 'AMOUNT'])
 
 # 选择一个特征进行分析
 feature = 'ALI_FQZSCORE'
@@ -468,10 +546,18 @@ ALI_FQZSCORE特征的top 5规则:
 7  ALI_FQZSCORE <= 688.5000  2.087320  0.640000      0.150301
 9  ALI_FQZSCORE <= 705.0000  1.993101  0.611111      0.216433
 ```
+### 示例2：多特征交叉规则挖掘
 
-#### 示例2：多特征交叉规则挖掘
+多特征交叉规则挖掘适用于发现特征间的交互作用，支持多特征两两交叉、多种指标分析和Excel导出。
 
-多特征交叉规则挖掘适用于发现特征间的交互作用：
+##### 2.1 核心功能
+
+- **多特征两两交叉**：支持传入多个特征，自动生成所有两两特征组合的交叉矩阵
+- **多种指标分析**：支持badrate、count、sample_ratio、lift、loss_rate、loss_lift等多种指标
+- **Excel导出**：支持将交叉矩阵导出为Excel文件，方便策略人员分析
+- **可视化支持**：通过热力图直观展示特征交叉关系
+
+##### 2.2 两特征交叉示例
 
 ```python
 from rulelift import MultiFeatureRuleMiner, load_example_data
@@ -481,16 +567,6 @@ feature_df = load_example_data('feas_target.csv')
 
 # 初始化多特征规则挖掘器
 multi_miner = MultiFeatureRuleMiner(feature_df, target_col='ISBAD')
-    
-# 生成交叉规则
-feature1 = 'ALI_FQZSCORE'
-feature2 = 'BAIDU_FQZSCORE'
-print(f"\n生成 {feature1} 和 {feature2} 的交叉规则")
-
-# 获取交叉规则
-cross_rules = multi_miner.get_cross_rules(feature1, feature2, top_n=5, metric='lift')
-print(f"{feature1}和{feature2}的交叉规则top 5:")
-print(cross_rules[['rule_description', 'lift', 'badrate', 'sample_ratio']])
 
 # 绘制交叉热力图
 plt = multi_miner.plot_cross_heatmap(feature1, feature2, metric='lift')
@@ -498,72 +574,290 @@ plt.savefig('cross_feature_heatmap.png', dpi=300, bbox_inches='tight')
 print("交叉特征热力图已保存到: cross_feature_heatmap.png")
 ```
 
-**运行结果**：
-```
-生成 ALI_FQZSCORE 和 BAIDU_FQZSCORE 的交叉规则
-ALI_FQZSCORE和BAIDU_FQZSCORE的交叉规则top 5:
-                                  rule_description      lift   badrate  sample_ratio
-90  ALI_FQZSCORE = count AND BAIDU_FQZSCORE = 18.0  5.000000  5.000000           0.1
-14    ALI_FQZSCORE = lift AND BAIDU_FQZSCORE = 2.0  3.261438  3.261438           0.1
-80  ALI_FQZSCORE = count AND BAIDU_FQZSCORE = 16.0  3.000000  3.000000           0.1
-20   ALI_FQZSCORE = count AND BAIDU_FQZSCORE = 4.0  2.000000  2.000000           0.1
-30   ALI_FQZSCORE = count AND BAIDU_FQZSCORE = 6.0  2.000000  2.000000           0.1
-交叉特征热力图已保存到: cross_feature_heatmap.png
-```
 
-#### 示例3：基于决策树的规则提取
+##### 2.3 多特征两两交叉示例
 
-决策树规则提取适用于生成综合性的规则集：
+支持传入多个特征，自动生成所有两两特征组合的交叉矩阵，方便策略人员全面分析特征间的交互关系。
 
 ```python
-from rulelift import DecisionTreeRuleExtractor, load_example_data
+# 多特征两两交叉分析示例
+features_list = ['ALI_FQZSCORE', 'BAIDU_FQZSCORE', 'NUMBER OF LOAN APPLICATIONS TO PBOC']
+cross_matrices_multi = multi_miner.generate_cross_matrices_excel(
+    features_list=features_list,
+    output_path='cross_analysis_multi_features.xlsx',
+    metrics=['badrate', 'count', 'sample_ratio', 'lift'],  # 支持多种指标分析
+    binning_method='quantile'  # 支持等频分箱
+)
+print(f"多特征交叉矩阵Excel文件已保存到: cross_analysis_multi_features.xlsx")
+```
+
+##### 2.4 支持的指标说明
+
+多特征交叉分析支持多种指标，帮助策略人员全面评估特征组合的风险水平和业务价值：
+
+| 指标 | 定义 | 业务意义 |
+|------|------|----------|
+| `badrate` | 坏样本比例 = 坏样本数 / 总样本数 | 直接反映该特征组合下的风险水平 |
+| `count` | 样本数量 | 反映该特征组合的覆盖范围 |
+| `sample_ratio` | 样本占比 = 该组合样本数 / 总样本数 | 反映该特征组合的业务重要性 |
+| `lift` | 提升度 = 该组合badrate / 总样本badrate | 反映该特征组合的风险区分能力，值越大效果越好 |
+| `loss_rate` | 损失率 = 损失金额 / 总金额 | 反映该特征组合的实际损失程度（需要提供amount_col和ovd_bal_col） |
+| `loss_lift` | 损失提升度 = 该组合loss_rate / 总样本loss_rate | 反映该特征组合的损失区分能力（需要提供amount_col和ovd_bal_col） |
+
+##### 2.5 Excel文件内容示例
+
+生成的Excel文件包含多个sheet，每个sheet对应一个特征组合，例如：
+- `ALI_FQZSCORE_x_BAIDU_FQZSCORE`：两个特征的交叉矩阵
+- `ALI_FQZSCORE_x_NUMBER OF LOAN APPLICATIONS TO PBOC`：另一个特征组合
+- 每个sheet包含以下指标：badrate、count、sample_ratio、lift等
+- 策略人员可以根据交叉矩阵中的高lift区域制订规则
+
+**Excel文件内容示例**：（需要在初始化时提供amount_col和ovd_bal_col）：
+
+| ALI_FQZSCORE | BAIDU_FQZSCORE | badrate | count | loss_rate | loss_lift |
+|--------------|----------------|---------|-------|-----------|-----------|
+| (500, 600]   | (300, 400]     | 0.6667  | 15    | 0.4567    | 2.89      |
+| (500, 600]   | (400, 500]     | 0.4000  | 25    | 0.3210    | 2.01      |
+| (600, 700]   | (300, 400]     | 0.5000  | 20    | 0.2890    | 1.81      |
+| (600, 700]   | (400, 500]     | 0.2000  | 30    | 0.1567    | 0.98      |
+
+### 示例3：基于树模型的规则提取
+
+TreeRuleExtractor 提供了统一的树模型规则提取接口，支持多种算法和丰富的配置选项，适用于生成综合性的规则集。
+
+##### 3.1 支持的算法
+
+TreeRuleExtractor 支持以下5种算法：
+
+| 算法 | 代码 | 特点 | 适用场景 |
+|------|------|------|----------|
+| 决策树 | `dt` | 简单直观，易于解释 | 快速生成规则，适合初步探索 |
+| 随机森林 | `rf` | 多树集成，稳定性好 | 需要更稳定、多样性的规则效果 |
+| 卡方决策树 | `chi2` | 基于卡方检验分裂 | 特征选择更严格 |
+| XGBoost | `xgb` | 梯度提升，性能优秀 | 需要高精度的规则 |
+| 孤立森林 | `isf` | 异常检测，无监督 | 发现异常模式 |
+
+##### 3.2 核心功能
+
+- **多种算法支持**：支持决策树、随机森林、卡方决策树、XGBoost、孤立森林5种算法
+- **超参数控制**：支持传入超参数控制树复杂度，如max_depth、min_samples_split、min_samples_leaf、n_estimators等
+- **业务解释性配置**：支持传入业务字段（feature_trends）挖掘符合业务解释性规则，过滤不符合业务逻辑的规则
+- **多种指标评估**：支持多种指标（如lift、badrate、precision、recall、f1、loss_rate、loss_lift）评估挖掘规则的有效性
+- **表格形式展示**：规则评估结果以表格形式展示，便于分析和筛选
+- **可视化支持**：提供特征重要性图、决策树结构图、规则评估图等可视化功能
+
+##### 3.3 基本使用示例
+
+```python
+from rulelift import TreeRuleExtractor, load_example_data
 
 # 加载用户特征数据集
 feature_df = load_example_data('feas_target.csv')
 
-# 初始化决策树规则提取器
-dt_miner = DecisionTreeRuleExtractor(
+# 初始化TreeRuleExtractor（决策树算法，不使用损失率指标）
+tree_miner = TreeRuleExtractor(
     feature_df, 
     target_col='ISBAD', 
-    exclude_cols=['ID', 'CREATE_TIME'],
-    max_depth=3, 
-    min_samples_leaf=10
+    exclude_cols=['ID', 'CREATE_TIME', 'OVD_BAL', 'AMOUNT'],
+    algorithm='dt',  # 使用决策树算法
+    max_depth=3,  # 树复杂度配置：决策树最大深度
+    min_samples_split=20,  # 规则精度配置：分裂节点所需的最小样本数
+    min_samples_leaf=10,  # 规则精度配置：叶子节点的最小样本数
+    test_size=0.3,  # 测试集比例
+    random_state=42  # 随机种子
 )
 
-# 训练决策树并提取规则
-dt_miner.extract_rules()
+# 训练模型
+train_acc, test_acc = tree_miner.train()
+print(f"训练集准确率: {train_acc:.4f}")
+print(f"测试集准确率: {test_acc:.4f}")
 
-# 获取规则DataFrame
-dt_rules_df = dt_miner.get_rules_as_dataframe()
-print(f"决策树提取的规则数量: {len(dt_rules_df)}")
-print(f"规则DataFrame列名: {list(dt_rules_df.columns)}")
+# 提取规则
+dt_rules = tree_miner.extract_rules()
+print(f"提取的规则数量: {len(dt_rules)}")
+
+# 规则评估
+eval_results = tree_miner.evaluate_rules()
+print(f"规则评估结果（前5条）:")
+print(eval_results[['rule', 'test_hit_count', 'test_bad_count', 'test_badrate', 'test_precision', 'test_recall', 'test_f1', 'test_lift']].head())
 
 # 打印规则
-dt_miner.print_rules(top_n=3)
-
-# 绘制特征重要性图
-dt_miner.plot_feature_importance()
-plt.savefig('feature_importance.png', dpi=300, bbox_inches='tight')
-print("特征重要性图已保存到: feature_importance.png")
+tree_miner.print_rules(top_n=3)
 ```
 
 **运行结果**：
 ```
-决策树提取的规则数量: 7
-规则DataFrame列名: ['rule_id', 'rule', 'predicted_class', 'class_name', 'class_probability', 'sample_count', 'importance', 'class_distribution']
+训练集准确率: 0.8223
+测试集准确率: 0.7600
+提取的规则数量: 7
+规则评估结果（前5条）:
+                                                rule  test_hit_count  test_bad_count  test_badrate  test_precision  test_recall   test_f1  test_lift       
+5  NUMBER OF LOAN APPLICATIONS TO PBOC > 9.5000 A...              12              11      0.916667        0.916667     0.244444  0.385965   3.055556       
+1  NUMBER OF LOAN APPLICATIONS TO PBOC <= 9.5000 ...               9               6      0.666667        0.666667     0.133333  0.222222   2.222222       
+4  NUMBER OF LOAN APPLICATIONS TO PBOC > 9.5000 A...              11               6      0.545455        0.545455     0.133333  0.214286   1.818182       
+2  NUMBER OF LOAN APPLICATIONS TO PBOC <= 9.5000 ...              62              15      0.241935        0.241935     0.333333  0.280374   0.806452       
+6  NUMBER OF LOAN APPLICATIONS TO PBOC > 9.5000 A...               9               2      0.222222        0.222222     0.044444  0.074074   0.740741       
+
 === Top 3 Rules ===
 
-Rule 5 (Importance: 1.9111):
-  人行近3个月申请借款次数 > 10.5000 AND ALI_FQZSCORE <= 807.5000 AND BAIDU_FQZSCORE <= 490.5000 
-  Predicted Class: bad (Probability: 0.9556)
+Rule 1 (Importance: 0.0000):
+  NUMBER OF LOAN APPLICATIONS TO PBOC <= 9.5000 AND ALI_FQZSCORE <= 692.5000 AND NUMBER OF LOAN APPLICATIONS TO PBOC > 3.5000
+  Predicted Class: bad (Probability: 0.7391)
   Sample Count: 1
-  Class Distribution: {'good': 0.044444444444444446, 'bad': 0.9555555555555556}
-  拦截用户数: 11
-  坏客户数: 9
-  好客户数: 2
-  Badrate: 0.8182
-  召回率: 0.3462
-  Lift: 3.1469
+  Class Distribution: {'good': np.float64(0.2608695652173913), 'bad': np.float64(0.7391304347826086)}
+  训练集 - 拦截用户数: 23, 坏客户数: 17, 好客户数: 6
+  训练集 - Badrate: 0.7391, Lift: 2.3885
+  测试集 - 拦截用户数: 9, 坏客户数: 6, 好客户数: 3
+  测试集 - Badrate: 0.6667, Lift: 2.2222
+
+```
+
+##### 3.4 使用损失率指标评估
+
+支持使用损失率指标评估规则的有效性，需要提供amount_col（金额字段）和ovd_bal_col（逾期金额字段）。
+
+```python
+# 初始化TreeRuleExtractor（使用损失率指标）
+tree_miner_with_loss = TreeRuleExtractor(
+    feature_df, 
+    target_col='ISBAD', 
+    exclude_cols=['ID', 'CREATE_TIME', 'OVD_BAL', 'AMOUNT'],
+    algorithm='dt',
+    max_depth=3, 
+    min_samples_split=20,
+    min_samples_leaf=10,
+    test_size=0.3,
+    random_state=42,
+    amount_col='AMOUNT',  # 金额字段
+    ovd_bal_col='OVD_BAL'  # 逾期金额字段
+)
+
+# 训练模型
+train_acc, test_acc = tree_miner_with_loss.train()
+print(f"训练集准确率: {train_acc:.4f}")
+print(f"测试集准确率: {test_acc:.4f}")
+
+# 提取规则
+dt_rules = tree_miner_with_loss.extract_rules()
+print(f"提取的规则数量: {len(dt_rules)}")
+
+# 规则评估（使用损失率指标）
+eval_results_with_loss = tree_miner_with_loss.evaluate_rules()
+print(f"规则评估结果（前5条，包含损失率指标）:")
+print(eval_results_with_loss[['rule', 'train_loss_rate', 'train_loss_lift', 'test_loss_rate', 'test_loss_lift', 'train_lift', 'test_lift']].head())
+```
+
+**运行结果**：
+```
+                                                rule  train_loss_rate  train_loss_lift  test_loss_rate  test_loss_lift  train_lift  test_lift
+5  NUMBER OF LOAN APPLICATIONS TO PBOC > 9.5000 A...         0.047619         2.632478        0.047619        2.632478    3.055556   3.055556
+1  NUMBER OF LOAN APPLICATIONS TO PBOC <= 9.5000 ...         0.025000         1.382979        0.025000        1.382979    2.222222   2.222222
+4  NUMBER OF LOAN APPLICATIONS TO PBOC > 9.5000 A...         0.020000         1.106383        0.020000        1.106383    1.818182   1.818182
+2  NUMBER OF LOAN APPLICATIONS TO PBOC <= 9.5000 ...         0.015000         0.829787        0.015000        0.829787    0.806452   0.806452
+6  NUMBER OF LOAN APPLICATIONS TO PBOC > 9.5000 A...         0.010000         0.553192        0.010000        0.553192    0.740741   0.740741
+```
+
+##### 3.5 使用业务解释性配置挖掘规则
+
+支持传入业务字段（feature_trends）挖掘符合业务解释性规则，过滤不符合业务逻辑的规则。
+
+```python
+# 初始化TreeRuleExtractor（XGBoost算法，使用特征趋势过滤）
+tree_miner_xgb = TreeRuleExtractor(
+    feature_df, 
+    target_col='ISBAD', 
+    exclude_cols=['ID', 'CREATE_TIME', 'OVD_BAL', 'AMOUNT'],
+    algorithm='xgb',  # 使用XGBoost算法
+    max_depth=3,
+    min_samples_split=10,
+    min_samples_leaf=10,
+    n_estimators=10,
+    max_features='sqrt',
+    test_size=0.3,
+    feature_trends={  # 业务解释性配置：特征与目标标签的正负相关性
+        'ALI_FQZSCORE': -1,      # 负相关：分数越低，违约概率越高
+        'BAIDU_FQZSCORE': -1,    # 负相关：分数越低，违约概率越高
+        'NUMBER OF LOAN APPLICATIONS TO PBOC': 1  # 正相关：申请次数越多，违约概率越高
+    },
+    random_state=42
+)
+
+# 训练模型
+train_acc, test_acc = tree_miner_xgb.train()
+print(f"训练集准确率: {train_acc:.4f}")
+print(f"测试集准确率: {test_acc:.4f}")
+
+# 提取规则
+xgb_rules = tree_miner_xgb.extract_rules()
+print(f"提取的规则数量: {len(xgb_rules)}")
+
+# 规则评估
+eval_results = tree_miner_xgb.evaluate_rules()
+print(f"规则评估结果（前5条）:")
+print(eval_results[['rule', 'test_hit_count', 'test_bad_count', 'test_badrate', 'test_precision', 'test_recall', 'test_f1', 'test_lift']].head())
+
+# 打印规则
+tree_miner_xgb.print_rules(top_n=3)
+```
+
+**运行结果**：
+```
+训练集准确率: 0.8166
+测试集准确率: 0.7867
+提取的规则数量: 31
+规则评估结果（前5条）:
+                                                 rule  test_hit_count  test_bad_count  test_badrate  test_precision  test_recall   test_f1  test_lift      
+28  ALI_FQZSCORE <= 692.5000 AND ALI_FQZSCORE <= 6...              10              10      1.000000        1.000000     0.222222  0.363636   3.333333      
+27  NUMBER OF LOAN APPLICATIONS TO PBOC > 9.5000 A...               7               7      1.000000        1.000000     0.155556  0.269231   3.333333      
+30  BAIDU_FQZSCORE <= 390.5000 AND BAIDU_FQZSCORE ...               4               4      1.000000        1.000000     0.088889  0.163265   3.333333      
+12  NUMBER OF LOAN APPLICATIONS TO PBOC > 10.5000 ...              17              16      0.941176        0.941176     0.355556  0.516129   3.137255      
+14  ALI_FQZSCORE <= 692.5000 AND NUMBER OF LOAN AP...              17              16      0.941176        0.941176     0.355556  0.516129   3.137255      
+
+=== Top 3 Rules (XGB) ===
+
+Rule 2 (Importance: 160.0000):
+  ALI_FQZSCORE <= 787.5000 AND BAIDU_FQZSCORE <= 464.5000
+  Predicted Class: bad (Probability: 0.4624)
+  Sample Count: 173
+  Class Distribution: {'good': np.float64(0.5971223021582734), 'bad': np.float64(0.4028776978417266)}
+  训练集 - 拦截用户数: 173, 坏客户数: 80, 好客户数: 93
+  训练集 - Badrate: 0.4624, Lift: 1.4943
+  测试集 - 拦截用户数: 67, 坏客户数: 32, 好客户数: 35
+  测试集 - Badrate: 0.4776, Lift: 1.5920
+```
+
+##### 3.6 常用参数说明
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|----------|------|
+| `algorithm` | str | `'dt'` | 算法类型：'dt'、'rf'、'chi2'、'xgb'、'isf' |
+| `max_depth` | int | `5` | 决策树最大深度，控制树的复杂度 |
+| `min_samples_split` | int | `10` | 分裂节点所需的最小样本数，控制规则精度 |
+| `min_samples_leaf` | int | `5` | 叶子节点的最小样本数，控制规则精度 |
+| `n_estimators` | int | `10` | 随机森林/XGBoost/孤立森林中树的数量 |
+| `max_features` | str | `'sqrt'` | 每棵树分裂时考虑的最大特征数：'sqrt'或'log2' |
+| `test_size` | float | `0.3` | 测试集比例 |
+| `random_state` | int | `42` | 随机种子，保证结果可复现 |
+| `feature_trends` | Dict[str, int] | `None` | 特征与目标标签的正负相关性字典，用于过滤不符合业务解释性的规则 |
+| `amount_col` | str | `None` | 金额字段名，用于计算损失率指标 |
+| `ovd_bal_col` | str | `None` | 逾期金额字段名，用于计算损失率指标 |
+
+##### 3.7 可视化功能
+
+TreeRuleExtractor 提供了丰富的可视化功能：
+
+```python
+# 特征重要性图
+tree_miner.plot_feature_importance(save_path='images/tree_feature_importance.png')
+print("特征重要性图已保存到: images/tree_feature_importance.png")
+
+# 决策树结构图（仅支持决策树和卡方决策树）
+tree_miner.plot_decision_tree(save_path='images/tree_decision_structure.pdf')
+print("决策树结构图已保存到: images/tree_decision_structure.pdf")
+
+# 规则评估图
+tree_miner.plot_rule_evaluation(save_path='images/tree_rule_evaluation.png')
+print("规则评估图已保存到: images/tree_rule_evaluation.png")
 ```
 
 
@@ -577,7 +871,7 @@ aialgorithm <15880982687@qq.com>
 
 ## 版本信息
 
-- 当前版本：1.1.6
+- 当前版本：1.2.2
 - 发布日期：2025-12-25
 
 ## 项目地址
