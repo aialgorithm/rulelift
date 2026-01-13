@@ -25,7 +25,7 @@ class VariableAnalyzer:
             amount_col: 金额字段名，默认为None
             ovd_bal_col: 逾期金额字段名，默认为None
         """
-        self.df = df.copy()
+        self.df = df.copy().reset_index(drop=True)
         self.target_col = target_col
         self.amount_col = amount_col
         self.ovd_bal_col = ovd_bal_col
@@ -71,7 +71,7 @@ class VariableAnalyzer:
         single_value_count = self.df[feature].value_counts().iloc[0] if len(self.df[feature].value_counts()) > 0 else 0
         return single_value_count / total_count if total_count > 0 else 0.0
     
-    def calculate_psi(self, feature: str, baseline_df: pd.DataFrame = None, current_df: pd.DataFrame = None) -> float:
+    def calculate_psi(self, feature: str, baseline_df: pd.DataFrame = None, current_df: pd.DataFrame = None, psi_dt: str = None, date_col: str = None) -> float:
         """
         计算PSI（Population Stability Index）
         
@@ -79,19 +79,50 @@ class VariableAnalyzer:
             feature: 特征名
             baseline_df: 基准数据集，默认为None（使用当前数据的前半部分）
             current_df: 当前数据集，默认为None（使用当前数据的后半部分）
+            psi_dt: 基准日期，格式为'yyyy-mm-dd'，用于分割基准和当前数据
+            date_col: 日期列名，用于根据日期分割数据
             
         返回:
             float，PSI值
         """
-        # 如果没有提供基准数据集，使用当前数据的前半部分作为基准
-        if baseline_df is None:
-            split_idx = len(self.df) // 2
-            baseline_df = self.df.iloc[:split_idx]
-            current_df = self.df.iloc[split_idx:]
+        # 如果提供了基准日期和日期列，根据日期分割数据
+        if psi_dt is not None and date_col is not None:
+            # 确保日期列存在
+            if date_col not in self.df.columns:
+                raise ValueError(f"日期列'{date_col}'不存在于数据集中")
+            
+            # 统一日期格式为yyyy-mm-dd
+            try:
+                psi_dt_parsed = pd.to_datetime(psi_dt, format='%Y-%m-%d')
+                psi_dt_str = psi_dt_parsed.strftime('%Y-%m-%d')
+            except ValueError:
+                raise ValueError(f"基准日期格式错误，请使用'yyyy-mm-dd'格式，例如：'2024-01-01'")
+            
+            # 转换日期列为datetime格式
+            try:
+                self.df[date_col] = pd.to_datetime(self.df[date_col])
+            except Exception as e:
+                raise ValueError(f"日期列'{date_col}'格式转换失败: {e}")
+            
+            # 以日期前为基准，计算PSI
+            baseline_df = self.df[self.df[date_col] < psi_dt_parsed].copy()
+            current_df = self.df[self.df[date_col] >= psi_dt_parsed].copy()
+            
+            # 检查数据是否为空
+            if len(baseline_df) == 0:
+                raise ValueError(f"基准日期'{psi_dt_str}'之前没有数据，请检查日期范围")
+            if len(current_df) == 0:
+                raise ValueError(f"基准日期'{psi_dt_str}'之后没有数据，请检查日期范围")
         else:
-            # 使用提供的基准和当前数据集
-            baseline_df = baseline_df.copy()
-            current_df = current_df.copy()
+            # 如果没有提供基准数据集，使用当前数据的前半部分作为基准
+            if baseline_df is None:
+                split_idx = len(self.df) // 2
+                baseline_df = self.df.iloc[:split_idx]
+                current_df = self.df.iloc[split_idx:]
+            else:
+                # 使用提供的基准和当前数据集
+                baseline_df = baseline_df.copy()
+                current_df = current_df.copy()
         
         # 确保两个数据集都有相同的列
         common_cols = [col for col in baseline_df.columns if col in current_df.columns]
@@ -318,7 +349,7 @@ class VariableAnalyzer:
         
         return loss_lift
     
-    def analyze_all_variables(self) -> pd.DataFrame:
+    def analyze_all_variables(self,psi_dt: str = None, date_col: str = None) -> pd.DataFrame:
         """
         分析所有变量的效度指标和统计信息
         
@@ -336,7 +367,7 @@ class VariableAnalyzer:
             single_value_rate = self.calculate_single_value_rate(feature)
             mean_diff = self.calculate_mean_diff(feature)
             corr_with_target = self.calculate_corr_with_target(feature)
-            psi = self.calculate_psi(feature)
+            psi = self.calculate_psi(feature, psi_dt=psi_dt, date_col=date_col)
             
             # 计算统计信息
             feature_data = self.df[feature]

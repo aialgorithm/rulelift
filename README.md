@@ -1,13 +1,13 @@
-## rulelift 是一个用于信用风险管理中策略规则自动挖掘、有效性分析及监控的 Python 工具包。
-- 实时评估监控上线规则的效度；
-- 自动化挖掘高价值的规则；
+## rulelift 是一个用于信用风险管理中策略规则自动挖掘、有效性分析及监控的Python工具包。
+- 实时监控上线规则的效度（无需分流测试、无需用户表现）；
+- 自动化挖掘高价值的规则（挖掘多种规则并评估、符合业务解释性）；
 
 ## 一、规则系统的缺陷
 
 在风控领域，规则系统因其配置便捷性和较强的解释性而被广泛应用，但也存在明显的缺陷：
 
-1. **规则线上效果监控难**：规则效果可能随时间漂移，需要定期监控和调整，但被上线规则拒掉的客户没有后续表现数据，无法直接评估规则拦截效果
-2. **规则维护复杂，缺乏系统性**：手动调整规则耗时耗力，规则之间的相互影响难以评估，容易导致冗余或冲突，陷入局部最优
+1. **规则线上效果监控难**：规则效果可能随时间漂移，需要定期监控和调整，但被上线规则拒掉的客户没有后续表现数据，无法直接评估规则拦截效果。此外，规则之间的相互影响难以评估，容易导致冗余或冲突，陷入局部最优；
+2. **规则维护复杂**：手动挖掘规则、调整规则耗时耗力；
 
 ## 二、rulelift 解决方案
 
@@ -90,7 +90,6 @@ rulelift旨在解决上述挑战，为信用风险管理团队提供一个高效
 - **全面评估**：综合考虑命中率、逾期率、召回率、精确率、lift值、F1分数等多个指标
 - **系统性视角**：评估规则之间的相关性和整体效果，减少人工干预，提高分析效率和准确性
 
-
 ### 技术原理
 基本思路是，基于分析规则拦截用户评级分布与整体客户评级分布的差异，估算出规则的效度。当然也支持常规的拿客户现有的逾期情况去评估规则有效性，这种一般在规则开发空跑时期使用，这里我们就不赘述。
 
@@ -120,7 +119,6 @@ rulelift旨在解决上述挑战，为信用风险管理团队提供一个高效
 ### 规则监控数据集
 首先，我们需要准备一个规则命中记录流水数据去分析评估规则效果，包含规则名称、用户编号、命中日期（可选）、用户评级（可选）、用户评级对应的坏账率（可选）、用户实际逾期（可选，如果有用户实际逾期表现，就可以不用借由用户评级去推估规则效果了）。
 
-
 #### 示例1：规则命中记录数据（关联用户评级）
 
 | RULE | USER_ID | HIT_DATE | USER_LEVEL | USER_LEVEL_BADRATE |
@@ -139,7 +137,6 @@ rulelift旨在解决上述挑战，为信用风险管理团队提供一个高效
 | 3    | 中风险   | 10.00%     | 中等逾期风险客户 |
 | 4    | 中低风险 | 5.00%      | 较低逾期风险客户 |
 | 5    | 低风险   | 2.00%      | 低逾期风险客户 |
-
 
 #### 示例2：规则记录数据（关联实际逾期）
 
@@ -298,7 +295,6 @@ print(gain_matrix)
 
 **改进方法**：推估方法强依赖评级效果，因此评级效果越好，良好拟合实际标签，推估效果就越好。可以通过拒绝推断、大样本减少幸存者偏差，再者可以通过算法优化、加入多方面维度的特征提高评级的拟合及泛化性。
 
-
 ## 四、规则自动挖掘模块介绍
 
 规则自动挖掘模块是 rulelift 的另一个核心功能，旨在解决手动制定规则耗时耗力、难以发现复杂关系的问题。该模块基于用户特征自动挖掘及优化规则，帮助风控团队快速生成高质量的规则集，提升规则系统的整体效果。规则自动挖掘模块提供以下核心功能：
@@ -328,7 +324,6 @@ print(gain_matrix)
 - **核心指标**：IV值、KS值、相关性系数、变量分箱、损失率分布、PSI等
 - **可视化支持**：提供变量相关性热力图和分箱分析图
 - **适用场景**：规则挖掘前的特征筛选和理解，帮助选择最有效的特征
-
 
 ```python
 from rulelift import VariableAnalyzer, load_example_data
@@ -485,8 +480,6 @@ BAIDU_FQZSCORE         0.356000        1.000000          -0.252000
 
 
 
-
-
 ### 示例1：单特征规则挖掘
 
 单特征规则挖掘适用于快速发现单个特征的有效阈值，支持传统方法、XGBoost方法和卡方检验方法。
@@ -526,7 +519,7 @@ print(f"\n分析特征: {feature}")
 # 计算单个特征的指标
 metrics_df = miner.calculate_single_feature_metrics(feature, num_bins=20)
 
-# 获取top规则
+# 获取规则展示
 top_rules = miner.get_top_rules(feature, top_n=5, metric='lift')
 print(f"{feature}特征的top 5规则:")
 print(top_rules[['rule_description', 'lift', 'badrate', 'sample_ratio']])
@@ -538,7 +531,7 @@ print(top_rules[['rule_description', 'lift', 'badrate', 'sample_ratio']])
 数据列名: ['ID', 'CREATE_TIME', 'ALI_FQZSCORE', 'BAIDU_FQZSCORE', '人行近3个月申请借款次数', 'ISBAD']
 
 分析特征: ALI_FQZSCORE
-ALI_FQZSCORE特征的top 5规则:
+ALI_FQZSCORE特征的规则:
            rule_description      lift   badrate  sample_ratio
 1  ALI_FQZSCORE <= 515.0000  3.261438  1.000000      0.002004
 3  ALI_FQZSCORE <= 635.0000  2.213119  0.678571      0.056112
@@ -612,7 +605,7 @@ print(f"多特征交叉矩阵Excel文件已保存到: cross_analysis_multi_featu
 - 每个sheet包含以下指标：badrate、count、sample_ratio、lift等
 - 策略人员可以根据交叉矩阵中的高lift区域制订规则
 
-**Excel文件内容示例**：（需要在初始化时提供amount_col和ovd_bal_col）：
+**Excel文件内容示例**：（需要在初始化时提供amount_col和ovd_bal_col）
 
 | ALI_FQZSCORE | BAIDU_FQZSCORE | badrate | count | loss_rate | loss_lift |
 |--------------|----------------|---------|-------|-----------|-----------|
@@ -620,7 +613,6 @@ print(f"多特征交叉矩阵Excel文件已保存到: cross_analysis_multi_featu
 | (500, 600]   | (400, 500]     | 0.4000  | 25    | 0.3210    | 2.01      |
 | (600, 700]   | (300, 400]     | 0.5000  | 20    | 0.2890    | 1.81      |
 | (600, 700]   | (400, 500]     | 0.2000  | 30    | 0.1567    | 0.98      |
-
 ### 示例3：基于树模型的规则提取
 
 TreeRuleExtractor 提供了统一的树模型规则提取接口，支持多种算法和丰富的配置选项，适用于生成综合性的规则集。
@@ -640,7 +632,7 @@ TreeRuleExtractor 支持以下5种算法：
 ##### 3.2 核心功能
 
 - **多种算法支持**：支持决策树、随机森林、卡方决策树、XGBoost、孤立森林5种算法
-- **超参数控制**：支持传入超参数控制树复杂度，如max_depth、min_samples_split、min_samples_leaf、n_estimators等
+- **超参数控制**：支持传入超参数控制树、规则复杂度，如max_depth、min_samples_split、min_samples_leaf、n_estimators等
 - **业务解释性配置**：支持传入业务字段（feature_trends）挖掘符合业务解释性规则，过滤不符合业务逻辑的规则
 - **多种指标评估**：支持多种指标（如lift、badrate、precision、recall、f1、loss_rate、loss_lift）评估挖掘规则的有效性
 - **表格形式展示**：规则评估结果以表格形式展示，便于分析和筛选
@@ -679,10 +671,7 @@ print(f"提取的规则数量: {len(dt_rules)}")
 # 规则评估
 eval_results = tree_miner.evaluate_rules()
 print(f"规则评估结果（前5条）:")
-print(eval_results[['rule', 'test_hit_count', 'test_bad_count', 'test_badrate', 'test_precision', 'test_recall', 'test_f1', 'test_lift']].head())
-
-# 打印规则
-tree_miner.print_rules(top_n=3)
+print(eval_results[['rule', 'test_hit_count', 'test_bad_count', 'test_badrate', 'test_hit_rate', 'test_baseline_badrate', 'test_badrate_after_interception', 'test_badrate_reduction', 'badrate_diff', 'test_precision', 'test_recall', 'test_f1', 'test_lift']].head())
 ```
 
 **运行结果**：
@@ -697,19 +686,6 @@ tree_miner.print_rules(top_n=3)
 4  NUMBER OF LOAN APPLICATIONS TO PBOC > 9.5000 A...              11               6      0.545455        0.545455     0.133333  0.214286   1.818182       
 2  NUMBER OF LOAN APPLICATIONS TO PBOC <= 9.5000 ...              62              15      0.241935        0.241935     0.333333  0.280374   0.806452       
 6  NUMBER OF LOAN APPLICATIONS TO PBOC > 9.5000 A...               9               2      0.222222        0.222222     0.044444  0.074074   0.740741       
-
-=== Top 3 Rules ===
-
-Rule 1 (Importance: 0.0000):
-  NUMBER OF LOAN APPLICATIONS TO PBOC <= 9.5000 AND ALI_FQZSCORE <= 692.5000 AND NUMBER OF LOAN APPLICATIONS TO PBOC > 3.5000
-  Predicted Class: bad (Probability: 0.7391)
-  Sample Count: 1
-  Class Distribution: {'good': np.float64(0.2608695652173913), 'bad': np.float64(0.7391304347826086)}
-  训练集 - 拦截用户数: 23, 坏客户数: 17, 好客户数: 6
-  训练集 - Badrate: 0.7391, Lift: 2.3885
-  测试集 - 拦截用户数: 9, 坏客户数: 6, 好客户数: 3
-  测试集 - Badrate: 0.6667, Lift: 2.2222
-
 ```
 
 ##### 3.4 使用损失率指标评估
@@ -794,10 +770,7 @@ print(f"提取的规则数量: {len(xgb_rules)}")
 # 规则评估
 eval_results = tree_miner_xgb.evaluate_rules()
 print(f"规则评估结果（前5条）:")
-print(eval_results[['rule', 'test_hit_count', 'test_bad_count', 'test_badrate', 'test_precision', 'test_recall', 'test_f1', 'test_lift']].head())
-
-# 打印规则
-tree_miner_xgb.print_rules(top_n=3)
+print(eval_results[['rule', 'test_hit_count', 'test_bad_count', 'test_badrate', 'test_hit_rate', 'test_baseline_badrate', 'test_badrate_after_interception', 'test_badrate_reduction', 'badrate_diff', 'test_precision', 'test_recall', 'test_f1', 'test_lift']].head())
 ```
 
 **运行结果**：
@@ -812,18 +785,6 @@ tree_miner_xgb.print_rules(top_n=3)
 30  BAIDU_FQZSCORE <= 390.5000 AND BAIDU_FQZSCORE ...               4               4      1.000000        1.000000     0.088889  0.163265   3.333333      
 12  NUMBER OF LOAN APPLICATIONS TO PBOC > 10.5000 ...              17              16      0.941176        0.941176     0.355556  0.516129   3.137255      
 14  ALI_FQZSCORE <= 692.5000 AND NUMBER OF LOAN AP...              17              16      0.941176        0.941176     0.355556  0.516129   3.137255      
-
-=== Top 3 Rules (XGB) ===
-
-Rule 2 (Importance: 160.0000):
-  ALI_FQZSCORE <= 787.5000 AND BAIDU_FQZSCORE <= 464.5000
-  Predicted Class: bad (Probability: 0.4624)
-  Sample Count: 173
-  Class Distribution: {'good': np.float64(0.5971223021582734), 'bad': np.float64(0.4028776978417266)}
-  训练集 - 拦截用户数: 173, 坏客户数: 80, 好客户数: 93
-  训练集 - Badrate: 0.4624, Lift: 1.4943
-  测试集 - 拦截用户数: 67, 坏客户数: 32, 好客户数: 35
-  测试集 - Badrate: 0.4776, Lift: 1.5920
 ```
 
 ##### 3.6 常用参数说明
@@ -879,6 +840,50 @@ aialgorithm <15880982687@qq.com>
 - GitHub: https://github.com/aialgorithm/rulelift
 - PyPI: https://pypi.org/project/rulelift/
 
+## 离线使用方式
+
+### 方式一：离线安装rulelift及相关依赖
+
+1. **在有网络的环境中下载依赖包**：
+
+```bash
+# 下载rulelift及其所有依赖
+pip download rulelift -d ./packages/
+```
+
+2. **将下载的packages文件夹传输到离线环境**
+
+3. **在离线环境中安装**：
+
+```bash
+# 进入packages文件夹
+cd ./packages/
+
+# 安装所有依赖包
+pip install *.whl --no-index --find-links=.
+```
+
+### 方式二：通过源码直接调用
+
+1. **下载源码**：
+
+   * 从GitHub下载源码包：<https://github.com/aialgorithm/rulelift>
+
+2. **将源码包传输到离线环境并解压**
+需要手动安装pandas、numpy、scikit-learn、matplotlib、seaborn
+3. **在Python代码中添加源码路径并导入**：
+
+```python
+import sys
+import os
+
+# 添加源码路径到系统路径
+sys.path.append('/path/to/rulelift-master')
+
+# 直接导入模块
+from rulelift import load_example_data, analyze_rules, TreeRuleExtractor
+```
+
 ## 后续维护
 如有bug或维护建议，请通过GitHub Issues反馈，我们会尽快响应并解决。也可以提交Pull Request（PR）来贡献代码。
 - 整合多个规则的评估结果，形成策略级结论
@@ -891,5 +896,3 @@ aialgorithm <15880982687@qq.com>
 -----
 
 <img width="350" height="400" alt="e99495131259259f29088d333b51819" src="https://github.com/user-attachments/assets/b2611aa6-4ff8-40a3-88ba-867bb384a89d" />
-
-

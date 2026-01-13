@@ -24,7 +24,7 @@ class MultiFeatureRuleMiner:
             amount_col: 金额字段名，默认为None
             ovd_bal_col: 逾期金额字段名，默认为None
         """
-        self.df = df.copy()
+        self.df = df.copy().reset_index(drop=True)
         self.target_col = target_col
         self.amount_col = amount_col
         self.ovd_bal_col = ovd_bal_col

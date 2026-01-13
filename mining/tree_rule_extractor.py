@@ -54,7 +54,7 @@ class TreeRuleExtractor:
                           1表示正相关（特征越大，违约概率越高），只保留大于阈值的规则
                           -1表示负相关（特征越小，违约概率越高），只保留小于等于阈值的规则
         """
-        self.df = df.copy()
+        self.df = df.copy().reset_index(drop=True)
         self.target_col = target_col
         self.exclude_cols = exclude_cols or []
         self.algorithm = algorithm.lower()
@@ -1127,6 +1127,35 @@ class TreeRuleExtractor:
                             loss_rate_test = total_ovd_bal_bad_selected / total_amount_selected
                             loss_lift_test = loss_rate_test / overall_loss_rate_test if overall_loss_rate_test > 0 else 0.0
             
+            # 计算整体badrate（基准badrate）
+            baseline_badrate_train = self.y_train.mean()
+            baseline_badrate_test = self.y_test.mean()
+            
+            # 计算命中率（规则命中样本占总样本的比例）
+            train_hit_rate = hit_count_train / len(self.X_train) if len(self.X_train) > 0 else 0
+            test_hit_rate = hit_count_test / len(self.X_test) if len(self.X_test) > 0 else 0
+            
+            # 计算压降后badrate（拦截后剩余badrate）
+            badrate_after_interception_train = 0.0
+            badrate_after_interception_test = 0.0
+            
+            if len(self.X_train) - hit_count_train > 0:
+                badrate_after_interception_train = (total_bad_train - hit_bad_train) / (len(self.X_train) - hit_count_train)
+            if len(self.X_test) - hit_count_test > 0:
+                badrate_after_interception_test = (total_bad_test - hit_bad_test) / (len(self.X_test) - hit_count_test)
+            
+            # 计算badrate降低幅度
+            badrate_reduction_train = 0.0
+            badrate_reduction_test = 0.0
+            
+            if baseline_badrate_train > 0 and train_hit_rate > 0:
+                badrate_reduction_train = ((baseline_badrate_train - badrate_after_interception_train) / baseline_badrate_train) / train_hit_rate
+            if baseline_badrate_test > 0 and test_hit_rate > 0:
+                badrate_reduction_test = ((baseline_badrate_test - badrate_after_interception_test) / baseline_badrate_test) / test_hit_rate
+            
+            # 计算效度差异值（训练集和测试集lift的差异）
+            badrate_diff = lift_train - lift_test
+            
             # 混淆矩阵
             true_positive = hit_bad_test
             false_positive = hit_good_test
@@ -1152,6 +1181,10 @@ class TreeRuleExtractor:
                 'train_lift': lift_train,
                 'train_loss_rate': loss_rate_train,
                 'train_loss_lift': loss_lift_train,
+                'train_hit_rate': train_hit_rate,
+                'train_baseline_badrate': baseline_badrate_train,
+                'train_badrate_after_interception': badrate_after_interception_train,
+                'train_badrate_reduction': badrate_reduction_train,
                 'test_hit_count': hit_count_test,
                 'test_bad_count': hit_bad_test,
                 'test_good_count': hit_good_test,
@@ -1162,6 +1195,11 @@ class TreeRuleExtractor:
                 'test_lift': lift_test,
                 'test_loss_rate': loss_rate_test,
                 'test_loss_lift': loss_lift_test,
+                'test_hit_rate': test_hit_rate,
+                'test_baseline_badrate': baseline_badrate_test,
+                'test_badrate_after_interception': badrate_after_interception_test,
+                'test_badrate_reduction': badrate_reduction_test,
+                'badrate_diff': badrate_diff,
                 'true_positive': true_positive,
                 'false_positive': false_positive,
                 'true_negative': true_negative,
