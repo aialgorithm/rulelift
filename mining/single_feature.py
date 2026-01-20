@@ -96,20 +96,24 @@ class SingleFeatureRuleMiner:
         loss_lift = 0.0
         
         if self.amount_col and self.ovd_bal_col and self.amount_col in self.df.columns and self.ovd_bal_col in self.df.columns:
-            # 计算选中样本的损失率
-            selected_df = selected[[self.amount_col, self.ovd_bal_col, self.target_col]].dropna()
+            # 计算选中样本的损失率（仅删除amount和ovd_bal的缺失值）
+            selected_df = selected[[self.amount_col, self.ovd_bal_col, self.target_col]].dropna(subset=[self.amount_col, self.ovd_bal_col])
             if len(selected_df) > 0:
+                # 计算选中样本的总放款金额（所有用户）
                 total_amount_selected = selected_df[self.amount_col].sum()
                 if total_amount_selected > 0:
+                    # 计算选中样本的逾期总金额（坏样本）
                     total_ovd_bal_bad_selected = selected_df[selected_df[self.target_col] == 1][self.ovd_bal_col].sum()
                     loss_rate = total_ovd_bal_bad_selected / total_amount_selected
                     
-                    # 计算整体损失率
-                    overall_df = self.df[[self.amount_col, self.ovd_bal_col, self.target_col]].dropna()
+                    # 计算整体损失率（仅删除amount和ovd_bal的缺失值）
+                    overall_df = self.df[[self.amount_col, self.ovd_bal_col, self.target_col]].dropna(subset=[self.amount_col, self.ovd_bal_col])
                     if len(overall_df) > 0:
                         total_amount_overall = overall_df[self.amount_col].sum()
                         if total_amount_overall > 0:
-                            total_ovd_bal_overall = overall_df[self.ovd_bal_col].sum()
+                            # 只统计坏样本的ovd_bal
+                            overall_df_bad = overall_df[overall_df[self.target_col] == 1]
+                            total_ovd_bal_overall = overall_df_bad[self.ovd_bal_col].sum()
                             overall_loss_rate = total_ovd_bal_overall / total_amount_overall
                             loss_lift = loss_rate / overall_loss_rate if overall_loss_rate > 0 else 0.0
         

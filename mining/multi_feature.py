@@ -217,8 +217,8 @@ class MultiFeatureRuleMiner:
         loss_lift_matrix = pd.DataFrame(index=count_matrix.index, columns=count_matrix.columns, dtype=float)
         
         if self.amount_col and self.ovd_bal_col and self.amount_col in self.df.columns and self.ovd_bal_col in self.df.columns:
-            # 计算整体损失率
-            overall_df = self.df[[self.amount_col, self.ovd_bal_col, self.target_col]].dropna()
+            # 计算整体损失率（仅删除amount和ovd_bal的缺失值）
+            overall_df = self.df[[self.amount_col, self.ovd_bal_col, self.target_col]].dropna(subset=[self.amount_col, self.ovd_bal_col])
             if len(overall_df) > 0:
                 total_amount_overall = overall_df[self.amount_col].sum()
                 if total_amount_overall > 0:
@@ -226,27 +226,42 @@ class MultiFeatureRuleMiner:
                     overall_df_bad = overall_df[overall_df[self.target_col] == 1]
                     total_ovd_bal_overall = overall_df_bad[self.ovd_bal_col].sum()
                     overall_loss_rate = total_ovd_bal_overall / total_amount_overall
+                else:
+                    overall_loss_rate = 0.0
+            else:
+                overall_loss_rate = 0.0
+            
+            # 计算每个交叉组合的损失率
+            for f1_val in count_matrix.index:
+                for f2_val in count_matrix.columns:
+                    mask = (cross_data['feature1'] == f1_val) & (cross_data['feature2'] == f2_val)
+                    # 获取当前交叉组合的所有样本
+                    subset = cross_data[mask]
                     
-                    # 计算每个交叉组合的损失率
-                    for f1_val in count_matrix.index:
-                        for f2_val in count_matrix.columns:
-                            mask = (cross_data['feature1'] == f1_val) & (cross_data['feature2'] == f2_val)
-                            # 先获取完整的subset，不dropna
-                            subset = cross_data[mask]
+                    if len(subset) > 0:
+                        # 计算当前分箱用户的总放款金额（所有用户）
+                        total_amount_selected = subset['amount'].dropna().sum()
+                        
+                        # 计算当前分箱用户的逾期总金额（坏样本）
+                        subset_bad = subset[subset['target'] == 1]
+                        total_ovd_bal_bad_selected = subset_bad['ovd_bal'].dropna().sum()
+                        
+                        # 计算损失率
+                        if total_amount_selected > 0:
+                            loss_rate = total_ovd_bal_bad_selected / total_amount_selected
+                            loss_rate_matrix.loc[f1_val, f2_val] = loss_rate
                             
-                            if len(subset) > 0:
-                                # 只统计坏样本的ovd_bal
-                                subset_bad = subset[subset['target'] == 1].dropna(subset=['amount', 'ovd_bal'])
-                                if len(subset_bad) > 0:
-                                    total_amount_selected = subset_bad['amount'].sum()
-                                    if total_amount_selected > 0:
-                                        total_ovd_bal_bad_selected = subset_bad['ovd_bal'].sum()
-                                        loss_rate = total_ovd_bal_bad_selected / total_amount_selected
-                                        loss_rate_matrix.loc[f1_val, f2_val] = loss_rate
-                                        
-                                        # 计算损失率提升度
-                                        loss_lift = loss_rate / overall_loss_rate if overall_loss_rate > 0 else 0.0
-                                        loss_lift_matrix.loc[f1_val, f2_val] = loss_lift
+                            # 计算损失率提升度
+                            loss_lift = loss_rate / overall_loss_rate if overall_loss_rate > 0 else 0.0
+                            loss_lift_matrix.loc[f1_val, f2_val] = loss_lift
+                        else:
+                            # 处理放款金额为0的情况
+                            loss_rate_matrix.loc[f1_val, f2_val] = 0.0
+                            loss_lift_matrix.loc[f1_val, f2_val] = 0.0
+                    else:
+                        # 处理交叉组合没有样本的情况
+                        loss_rate_matrix.loc[f1_val, f2_val] = 0.0
+                        loss_lift_matrix.loc[f1_val, f2_val] = 0.0
         
         # 整合所有矩阵到一个MultiIndex DataFrame中
         # 创建一个空的MultiIndex DataFrame

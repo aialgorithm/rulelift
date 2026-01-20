@@ -83,7 +83,10 @@ def calculate_strategy_pair_gain(user_rule_df, user_target, strategy_a_rules, st
         }
     
     # 策略A在策略B之后新增的拦截用户：被策略A拦截但未被策略B拦截的用户
-    new_intercept_users = [user for user in a_hit_users if user not in b_hit_users]
+    # 使用集合操作提高效率
+    a_hit_set = set(a_hit_users)
+    b_hit_set = set(b_hit_users)
+    new_intercept_users = list(a_hit_set - b_hit_set)
     new_intercept_count = len(new_intercept_users)
     
     if new_intercept_count == 0:

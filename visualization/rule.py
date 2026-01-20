@@ -3,9 +3,20 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from typing import Dict, List, Tuple, Optional, Union
-import networkx as nx
 from sklearn.tree import export_graphviz
-import graphviz
+
+# 可选依赖处理
+try:
+    import networkx as nx
+    HAS_NETWORKX = True
+except ImportError:
+    HAS_NETWORKX = False
+
+try:
+    import graphviz
+    HAS_GRAPHVIZ = True
+except ImportError:
+    HAS_GRAPHVIZ = False
 
 class RuleVisualizer:
     """
@@ -192,6 +203,9 @@ class RuleVisualizer:
         返回:
             图表对象
         """
+        if not HAS_GRAPHVIZ:
+            raise ImportError("graphviz is required for plot_decision_tree. Install it with: pip install rulelift[visualization]")
+        
         # 使用graphviz绘制决策树
         dot_data = export_graphviz(
             model,
@@ -226,6 +240,9 @@ class RuleVisualizer:
         返回:
             图表对象
         """
+        if not HAS_NETWORKX:
+            raise ImportError("networkx is required for plot_rule_network. Install it with: pip install rulelift[visualization]")
+        
         # 创建有向图
         G = nx.DiGraph()
         

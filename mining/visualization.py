@@ -3,7 +3,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from typing import List, Dict, Any, Tuple, Optional
-import networkx as nx
+
+# 可选依赖处理
+try:
+    import networkx as nx
+    HAS_NETWORKX = True
+except ImportError:
+    HAS_NETWORKX = False
 
 # 设置中文字体支持
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS', 'DejaVu Sans']
@@ -70,6 +76,9 @@ def plot_rule_network(rules_df: pd.DataFrame, figsize: Tuple[int, int] = (15, 15
         figsize: 图表大小
         save_path: 保存路径，如'./rule_network.png'
     """
+    if not HAS_NETWORKX:
+        raise ImportError("networkx is required for plot_rule_network. Install it with: pip install rulelift[visualization]")
+    
     # 创建有向图
     G = nx.DiGraph()
     

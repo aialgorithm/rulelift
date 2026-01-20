@@ -19,11 +19,11 @@ def calculate_estimated_metrics(rule_score, user_rule_df, user_id_col, user_leve
     # 计算总样本数
     total_samples = len(user_rule_df)
     
-    # 计算每个用户的预估逾期概率
-    user_badrate = rule_score.groupby(user_id_col)[user_level_badrate_col].first().to_dict()
+    # 计算每个用户的预估逾期概率（使用mean()而不是first()，因为一个用户可能有多条记录）
+    user_badrate = rule_score.groupby(user_id_col)[user_level_badrate_col].mean().to_dict()
     
     # 计算总预估逾期样本数
-    total_estimated_bads = sum(user_badrate[user_id] for user_id in user_rule_df.index)
+    total_estimated_bads = sum(user_badrate.get(user_id, 0) for user_id in user_rule_df.index)
     
     estimated_metrics = {}
     
@@ -36,13 +36,14 @@ def calculate_estimated_metrics(rule_score, user_rule_df, user_id_col, user_leve
             continue
         
         # 命中规则的预估逾期样本数
-        estimated_bads = sum(user_badrate[user_id] for user_id in hit_users)
+        estimated_bads = sum(user_badrate.get(user_id, 0) for user_id in hit_users)
         
-        # 计算指标
-        estimated_badrate = estimated_bads / hit_count
-        estimated_recall = estimated_bads / total_estimated_bads
-        estimated_precision = estimated_bads / hit_count
-        estimated_lift = estimated_badrate / (total_estimated_bads / total_samples)
+        # 计算指标（添加除零检查）
+        total_estimated_badrate = total_estimated_bads / total_samples if total_samples > 0 else 0
+        estimated_badrate = estimated_bads / hit_count if hit_count > 0 else 0
+        estimated_recall = estimated_bads / total_estimated_bads if total_estimated_bads > 0 else 0
+        estimated_precision = estimated_bads / hit_count if hit_count > 0 else 0
+        estimated_lift = estimated_badrate / total_estimated_badrate if total_estimated_badrate > 0 else 0
         
         estimated_metrics[rule] = {
             'estimated_badrate_pred': estimated_badrate,
@@ -71,11 +72,11 @@ def calculate_actual_metrics(rule_score, user_rule_df, user_id_col, user_target_
     # 计算总样本数
     total_samples = len(user_rule_df)
     
-    # 计算每个用户的实际逾期情况
-    user_target = rule_score.groupby(user_id_col)[user_target_col].first().to_dict()
+    # 计算每个用户的实际逾期情况（使用mean()而不是first()，因为一个用户可能有多条记录）
+    user_target = rule_score.groupby(user_id_col)[user_target_col].mean().to_dict()
     
     # 计算总实际逾期样本数
-    total_actual_bads = sum(user_target[user_id] for user_id in user_rule_df.index)
+    total_actual_bads = sum(user_target.get(user_id, 0) for user_id in user_rule_df.index)
     
     actual_metrics = {}
     

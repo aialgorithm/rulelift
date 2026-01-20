@@ -24,7 +24,7 @@ from .visualization import (
     generate_rule_report
 )
 
-__version__ = '1.2.3'
+__version__ = '1.2.4'
 __all__ = [
     # Utils
     'load_example_data',

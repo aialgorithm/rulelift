@@ -18,8 +18,13 @@ def calculate_psi(expected, actual, buckets=10):
     
     # 分箱处理
     try:
-        # 使用等频分箱
-        expected_ranks, bins = pd.qcut(expected, buckets, labels=False, duplicates='drop', retbins=True)
+        # 检查是否为数值型且唯一值大于20，使用等频20分箱
+        if pd.api.types.is_numeric_dtype(expected) and expected.nunique() > 20:
+            # 使用等频分箱，处理重复值
+            expected_ranks, bins = pd.qcut(expected, 20, labels=False, duplicates='drop', retbins=True)
+        else:
+            # 使用指定的分箱数量
+            expected_ranks, bins = pd.qcut(expected, buckets, labels=False, duplicates='drop', retbins=True)
         # 使用相同的分箱边界处理实际数据
         actual_ranks = pd.cut(actual, bins=bins, labels=False, include_lowest=True)
     except ValueError:

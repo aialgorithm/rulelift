@@ -85,6 +85,14 @@ class VariableAnalyzer:
         返回:
             float，PSI值
         """
+        # 辅助函数：对数值型变量进行等频分箱
+        def bin_data(df, col, n_bins=20):
+            # 检查是否为数值型且唯一值大于20
+            if pd.api.types.is_numeric_dtype(df[col]) and df[col].nunique() > 20:
+                # 使用等频分箱，处理重复值
+                return pd.qcut(df[col], q=n_bins, duplicates='drop', labels=False)
+            return df[col]
+        
         # 如果提供了基准日期和日期列，根据日期分割数据
         if psi_dt is not None and date_col is not None:
             # 确保日期列存在
@@ -105,8 +113,8 @@ class VariableAnalyzer:
                 raise ValueError(f"日期列'{date_col}'格式转换失败: {e}")
             
             # 以日期前为基准，计算PSI
-            baseline_df = self.df[self.df[date_col] < psi_dt_parsed].copy()
-            current_df = self.df[self.df[date_col] >= psi_dt_parsed].copy()
+            baseline_df = self.df[self.df[date_col] < psi_dt_parsed].copy().reset_index(drop=True)
+            current_df = self.df[self.df[date_col] >= psi_dt_parsed].copy().reset_index(drop=True)
             
             # 检查数据是否为空
             if len(baseline_df) == 0:
@@ -117,34 +125,48 @@ class VariableAnalyzer:
             # 如果没有提供基准数据集，使用当前数据的前半部分作为基准
             if baseline_df is None:
                 split_idx = len(self.df) // 2
-                baseline_df = self.df.iloc[:split_idx]
-                current_df = self.df.iloc[split_idx:]
+                baseline_df = self.df.iloc[:split_idx].copy().reset_index(drop=True)
+                current_df = self.df.iloc[split_idx:].copy().reset_index(drop=True)
             else:
-                # 使用提供的基准和当前数据集
-                baseline_df = baseline_df.copy()
-                current_df = current_df.copy()
+                # 使用提供的基准和当前数据集，并重置索引
+                baseline_df = baseline_df.copy().reset_index(drop=True)
+                current_df = current_df.copy().reset_index(drop=True)
         
         # 确保两个数据集都有相同的列
         common_cols = [col for col in baseline_df.columns if col in current_df.columns]
-        baseline_df = baseline_df[common_cols]
-        current_df = current_df[common_cols]
+        baseline_df = baseline_df[common_cols].reset_index(drop=True)
+        current_df = current_df[common_cols].reset_index(drop=True)
         
         # 计算PSI
         psi_value = 0.0
-        for col in common_cols:
-            if col == feature:
-                # 计算基准分布
-                baseline_dist = baseline_df[col].value_counts(normalize=True)
-                current_dist = current_df[col].value_counts(normalize=True)
-                
-                # 合并分布
-                combined_dist = pd.concat([baseline_dist, current_dist], axis=1).fillna(0)
-                
-                # 计算PSI
-                psi = ((combined_dist.iloc[1] - combined_dist.iloc[0]) ** 2).sum()
-                psi_value += psi
         
-        return psi_value / len(common_cols) if len(common_cols) > 0 else 0.0
+        # 检查特征是否在公共列中
+        if feature not in common_cols:
+            return psi_value
+        
+        # 对基准数据和当前数据进行分箱处理
+        baseline_binned = bin_data(baseline_df, feature)
+        current_binned = bin_data(current_df, feature)
+        
+        # 计算基准分布
+        baseline_dist = baseline_binned.value_counts(normalize=True)
+        current_dist = current_binned.value_counts(normalize=True)
+        
+        # 合并分布
+        combined_dist = pd.concat([baseline_dist, current_dist], axis=1).fillna(0)
+        combined_dist.columns = ['baseline', 'current']
+        
+        # 计算PSI
+        # 避免log(0)，添加一个小的常数
+        epsilon = 1e-10
+        combined_dist['baseline'] = combined_dist['baseline'].clip(epsilon, 1-epsilon)
+        combined_dist['current'] = combined_dist['current'].clip(epsilon, 1-epsilon)
+        
+        # 计算PSI的正确公式：sum((当前分布 - 基准分布) * ln(当前分布 / 基准分布))
+        psi = ((combined_dist['current'] - combined_dist['baseline']) * np.log(combined_dist['current'] / combined_dist['baseline'])).sum()
+        psi_value += psi
+        
+        return psi_value
     
     def calculate_iv(self, feature: str, n_bins: int = 10) -> float:
         """
@@ -294,15 +316,18 @@ class VariableAnalyzer:
         if ovd_bal_col is None or ovd_bal_col not in self.df.columns:
             return 0.0
         
-        df = self.df[[feature, self.target_col, amount_col, ovd_bal_col]].dropna()
+        # 仅删除amount和ovd_bal的缺失值
+        df = self.df[[feature, self.target_col, amount_col, ovd_bal_col]].dropna(subset=[amount_col, ovd_bal_col])
         
         if len(df) == 0:
             return 0.0
         
+        # 计算特征所有样本的总放款金额
         total_amount = df[amount_col].sum()
         if total_amount == 0:
             return 0.0
         
+        # 计算特征所有样本中坏样本的逾期总金额
         total_ovd_bal_bad = df[df[self.target_col] == 1][ovd_bal_col].sum()
         
         loss_rate = total_ovd_bal_bad / total_amount
@@ -327,7 +352,8 @@ class VariableAnalyzer:
         if ovd_bal_col is None or ovd_bal_col not in self.df.columns:
             return 0.0
         
-        df = self.df[[feature, self.target_col, amount_col, ovd_bal_col]].dropna()
+        # 仅删除amount和ovd_bal的缺失值
+        df = self.df[[feature, self.target_col, amount_col, ovd_bal_col]].dropna(subset=[amount_col, ovd_bal_col])
         
         if len(df) == 0:
             return 0.0
@@ -340,8 +366,9 @@ class VariableAnalyzer:
         total_ovd_bal_bad = df[df[self.target_col] == 1][ovd_bal_col].sum()
         feature_loss_rate = total_ovd_bal_bad / total_amount
         
-        # 计算整体损失率
-        total_ovd_bal_all = df[ovd_bal_col].sum()
+        # 计算整体损失率（只统计坏样本的ovd_bal）
+        df_bad = df[df[self.target_col] == 1]
+        total_ovd_bal_all = df_bad[ovd_bal_col].sum()
         overall_loss_rate = total_ovd_bal_all / total_amount
         
         # 计算损失率提升度
@@ -407,8 +434,8 @@ class VariableAnalyzer:
         if variable not in self.features:
             raise ValueError(f"Variable {variable} is not in the list of numeric features.")
         
-        # 对特征值进行等频分箱
-        df = self.df[[variable, self.target_col]].dropna()
+        # 对特征值进行等频分箱，重置索引
+        df = self.df[[variable, self.target_col]].dropna().reset_index(drop=True)
         df['bin'] = pd.qcut(df[variable], q=n_bins, duplicates='drop', labels=False)
         
         # 获取分箱边界
@@ -446,31 +473,40 @@ class VariableAnalyzer:
             bin_stats['loss_rate'] = 0.0
             bin_stats['loss_lift'] = 0.0
             
-            # 计算整体损失率
-            overall_df = self.df[[self.amount_col, self.ovd_bal_col, self.target_col]].dropna()
+            # 计算整体损失率（仅删除amount和ovd_bal的缺失值）
+            overall_df = self.df[[self.amount_col, self.ovd_bal_col, self.target_col]].dropna(subset=[self.amount_col, self.ovd_bal_col]).reset_index(drop=True)
             if len(overall_df) > 0:
                 total_amount_overall = overall_df[self.amount_col].sum()
                 if total_amount_overall > 0:
-                    total_ovd_bal_overall = overall_df[self.ovd_bal_col].sum()
+                    # 只统计坏样本的ovd_bal
+                    overall_df_bad = overall_df[overall_df[self.target_col] == 1]
+                    total_ovd_bal_overall = overall_df_bad[self.ovd_bal_col].sum()
                     overall_loss_rate = total_ovd_bal_overall / total_amount_overall
+                else:
+                    overall_loss_rate = 0.0
+            else:
+                overall_loss_rate = 0.0
                     
-                    # 为每个分箱计算损失率和损失率提升度
-                    for bin_idx in bin_stats['bin']:
-                        # 获取该分箱的样本
-                        bin_mask = (df['bin'] == bin_idx)
-                        bin_indices = df[bin_mask].index
-                        
-                        # 计算该分箱的损失率
-                        bin_subset = self.df.loc[bin_indices][[self.amount_col, self.ovd_bal_col, self.target_col]].dropna()
-                        if len(bin_subset) > 0:
-                            total_amount_bin = bin_subset[self.amount_col].sum()
-                            if total_amount_bin > 0:
-                                total_ovd_bal_bad_bin = bin_subset[bin_subset[self.target_col] == 1][self.ovd_bal_col].sum()
-                                loss_rate = total_ovd_bal_bad_bin / total_amount_bin
-                                loss_lift = loss_rate / overall_loss_rate if overall_loss_rate > 0 else 0.0
+            # 在创建df时包含所有需要的列，避免后续索引问题
+            df_with_amount = self.df[[variable, self.target_col, self.amount_col, self.ovd_bal_col]].dropna(subset=[self.amount_col, self.ovd_bal_col]).reset_index(drop=True)
+            df_with_amount['bin'] = pd.qcut(df_with_amount[variable], q=n_bins, duplicates='drop', labels=False)
+                    
+            # 为每个分箱计算损失率和损失率提升度
+            for bin_idx in bin_stats['bin']:
+                # 获取该分箱的样本，使用reset_index后的索引
+                bin_subset = df_with_amount[df_with_amount['bin'] == bin_idx]
+                if len(bin_subset) > 0:
+                    # 计算该分箱用户的总放款金额（所有用户）
+                    total_amount_bin = bin_subset[self.amount_col].sum()
+                    if total_amount_bin > 0:
+                        # 计算该分箱用户的逾期总金额（坏样本）
+                        bin_subset_bad = bin_subset[bin_subset[self.target_col] == 1]
+                        total_ovd_bal_bad_bin = bin_subset_bad[self.ovd_bal_col].sum()
+                        loss_rate = total_ovd_bal_bad_bin / total_amount_bin
+                        loss_lift = loss_rate / overall_loss_rate if overall_loss_rate > 0 else 0.0
                                 
-                                bin_stats.loc[bin_stats['bin'] == bin_idx, 'loss_rate'] = loss_rate
-                                bin_stats.loc[bin_stats['bin'] == bin_idx, 'loss_lift'] = loss_lift
+                        bin_stats.loc[bin_stats['bin'] == bin_idx, 'loss_rate'] = loss_rate
+                        bin_stats.loc[bin_stats['bin'] == bin_idx, 'loss_lift'] = loss_lift
         
         return bin_stats
     

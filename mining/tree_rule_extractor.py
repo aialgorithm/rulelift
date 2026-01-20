@@ -1010,8 +1010,8 @@ class TreeRuleExtractor:
         overall_loss_rate_test = 0.0
         
         if self.amount_col and self.ovd_bal_col and self.amount_col in self.df.columns and self.ovd_bal_col in self.df.columns:
-            # 训练集整体损失率
-            train_df = self.df.iloc[self.X_train.index][[self.amount_col, self.ovd_bal_col, self.target_col]].dropna()
+            # 训练集整体损失率（仅删除amount和ovd_bal的缺失值）
+            train_df = self.df.iloc[self.X_train.index][[self.amount_col, self.ovd_bal_col, self.target_col]].dropna(subset=[self.amount_col, self.ovd_bal_col])
             if len(train_df) > 0:
                 total_amount_train = train_df[self.amount_col].sum()
                 if total_amount_train > 0:
@@ -1019,9 +1019,13 @@ class TreeRuleExtractor:
                     train_df_bad = train_df[train_df[self.target_col] == 1]
                     total_ovd_bal_train = train_df_bad[self.ovd_bal_col].sum()
                     overall_loss_rate_train = total_ovd_bal_train / total_amount_train
+                else:
+                    overall_loss_rate_train = 0.0
+            else:
+                overall_loss_rate_train = 0.0
             
-            # 测试集整体损失率
-            test_df = self.df.iloc[self.X_test.index][[self.amount_col, self.ovd_bal_col, self.target_col]].dropna()
+            # 测试集整体损失率（仅删除amount和ovd_bal的缺失值）
+            test_df = self.df.iloc[self.X_test.index][[self.amount_col, self.ovd_bal_col, self.target_col]].dropna(subset=[self.amount_col, self.ovd_bal_col])
             if len(test_df) > 0:
                 total_amount_test = test_df[self.amount_col].sum()
                 if total_amount_test > 0:
@@ -1029,6 +1033,10 @@ class TreeRuleExtractor:
                     test_df_bad = test_df[test_df[self.target_col] == 1]
                     total_ovd_bal_test = test_df_bad[self.ovd_bal_col].sum()
                     overall_loss_rate_test = total_ovd_bal_test / total_amount_test
+                else:
+                    overall_loss_rate_test = 0.0
+            else:
+                overall_loss_rate_test = 0.0
         
         for rule in rules_to_evaluate:
             # 在训练集上应用规则
@@ -1071,10 +1079,12 @@ class TreeRuleExtractor:
                 loss_rate_train = 0.0
                 loss_lift_train = 0.0
                 if self.amount_col and self.ovd_bal_col and self.amount_col in self.df.columns and self.ovd_bal_col in self.df.columns:
-                    train_subset = self.df.iloc[self.X_train.index][mask_train][[self.amount_col, self.ovd_bal_col, self.target_col]].dropna()
+                    train_subset = self.df.iloc[self.X_train.index][mask_train][[self.amount_col, self.ovd_bal_col, self.target_col]].dropna(subset=[self.amount_col, self.ovd_bal_col])
                     if len(train_subset) > 0:
+                        # 计算命中样本的总放款金额（所有用户）
                         total_amount_selected = train_subset[self.amount_col].sum()
                         if total_amount_selected > 0:
+                            # 计算命中样本的逾期总金额（坏样本）
                             total_ovd_bal_bad_selected = train_subset[train_subset[self.target_col] == 1][self.ovd_bal_col].sum()
                             loss_rate_train = total_ovd_bal_bad_selected / total_amount_selected
                             loss_lift_train = loss_rate_train / overall_loss_rate_train if overall_loss_rate_train > 0 else 0.0
@@ -1119,10 +1129,12 @@ class TreeRuleExtractor:
                 loss_rate_test = 0.0
                 loss_lift_test = 0.0
                 if self.amount_col and self.ovd_bal_col and self.amount_col in self.df.columns and self.ovd_bal_col in self.df.columns:
-                    test_subset = self.df.iloc[self.X_test.index][mask_test][[self.amount_col, self.ovd_bal_col, self.target_col]].dropna()
+                    test_subset = self.df.iloc[self.X_test.index][mask_test][[self.amount_col, self.ovd_bal_col, self.target_col]].dropna(subset=[self.amount_col, self.ovd_bal_col])
                     if len(test_subset) > 0:
+                        # 计算命中样本的总放款金额（所有用户）
                         total_amount_selected = test_subset[self.amount_col].sum()
                         if total_amount_selected > 0:
+                            # 计算命中样本的逾期总金额（坏样本）
                             total_ovd_bal_bad_selected = test_subset[test_subset[self.target_col] == 1][self.ovd_bal_col].sum()
                             loss_rate_test = total_ovd_bal_bad_selected / total_amount_selected
                             loss_lift_test = loss_rate_test / overall_loss_rate_test if overall_loss_rate_test > 0 else 0.0
