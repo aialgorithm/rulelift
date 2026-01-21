@@ -1,11 +1,10 @@
 ## rulelift 是一个用于信用风险管理中策略规则的自动挖掘、有效性分析及监控的Python工具包。
 - 实时评估上线规则的效度（无需分流测试、无需表现标签）；
 - 自动化挖掘高价值的规则（挖掘并评估多种规则、符合业务解释性）；
-### PyPI下载量统计
-[![PyPI downloads](https://img.shields.io/pypi/dm/rulelift.svg)](https://pypistats.org/packages/rulelift)
+### 项目统计
+[![PyPI Downloads下载量](https://img.shields.io/pypi/dm/rulelift?label=PyPI项目下载量)](https://pypistats.org/packages/rulelift)
 [![PyPI version](https://img.shields.io/pypi/v/rulelift.svg)](https://pypi.org/project/rulelift/)
 
-### Star History
 [![Star History Chart](https://api.star-history.com/svg?repos=aialgorithm/rulelift&type=Date)](https://star-history.com/#aialgorithm/rulelift&Date)
 
 ## 一、项目背景
