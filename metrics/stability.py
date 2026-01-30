@@ -26,7 +26,7 @@ def calculate_psi(expected, actual, buckets=10):
             # 使用指定的分箱数量
             expected_ranks, bins = pd.qcut(expected, buckets, labels=False, duplicates='drop', retbins=True)
         # 使用相同的分箱边界处理实际数据
-        actual_ranks = pd.cut(actual, bins=bins, labels=False, include_lowest=True)
+        actual_ranks = pd.cut(actual, bins=bins, labels=False)
     except ValueError:
         # 处理异常情况，如数据量过少
         expected_ranks = pd.Series(0, index=expected.index)
@@ -74,7 +74,8 @@ def calculate_rule_psi(rule_score, rule_col, hit_date_col, user_id_col, time_spl
     
     # 合并数据，计算命中率
     daily_metrics = pd.merge(daily_hit_rate, daily_total, on=hit_date_col, how='left')
-    daily_metrics['hit_rate'] = daily_metrics['hit_count'] / daily_metrics['total_count']
+    daily_metrics['hit_rate'] = daily_metrics['hit_count'] / daily_metrics['total_count'].replace(0, np.nan)
+    daily_metrics['hit_rate'] = daily_metrics['hit_rate'].fillna(0)
     
     # 按规则计算PSI
     psi_results = []
@@ -126,34 +127,65 @@ def calculate_rule_stability(rule_score, rule_col, hit_date_col, user_id_col):
     # 按月份分组
     rule_score['month'] = rule_score[hit_date_col].dt.to_period('M')
     
-    # 计算每个规则每月的命中率
-    monthly_metrics = rule_score.groupby([rule_col, 'month']).agg(
-        hit_count=pd.NamedAgg(column=user_id_col, aggfunc='nunique'),
-        total_count=pd.NamedAgg(column=user_id_col, aggfunc=lambda x: rule_score[rule_score['month'] == x.name[1]][user_id_col].nunique())
-    ).reset_index()
+    # 计算每个月的总用户数（独立于规则）
+    monthly_total_users = rule_score.groupby('month')[user_id_col].nunique().reset_index()
+    monthly_total_users = monthly_total_users.rename(columns={user_id_col: 'total_count'})
     
-    monthly_metrics['hit_rate'] = monthly_metrics['hit_count'] / monthly_metrics['total_count']
+    # 计算每个规则每月的命中用户数
+    monthly_hit_users = rule_score.groupby([rule_col, 'month'])[user_id_col].nunique().reset_index()
+    monthly_hit_users = monthly_hit_users.rename(columns={user_id_col: 'hit_count'})
+    
+    # 合并数据
+    monthly_metrics = pd.merge(monthly_hit_users, monthly_total_users, on='month', how='left')
+    
+    monthly_metrics['hit_rate'] = monthly_metrics['hit_count'] / monthly_metrics['total_count'].replace(0, np.nan)
+    monthly_metrics['hit_rate'] = monthly_metrics['hit_rate'].fillna(0)
     
     stability_results = {}
     
     for rule in monthly_metrics[rule_col].unique():
         rule_data = monthly_metrics[monthly_metrics[rule_col] == rule].sort_values('month')
         
-        if len(rule_data) < 2:
+        # 如果数据不足，设置默认值
+        if len(rule_data) < 1:
+            stability_results[rule] = {
+                'hit_rate_std': 0,
+                'hit_rate_cv': 0,
+                'max_monthly_change': 0,
+                'min_monthly_change': 0,
+                'avg_monthly_change': 0,
+                'months_analyzed': 0
+            }
             continue
         
-        # 计算命中率标准差
-        hit_rate_std = rule_data['hit_rate'].std()
-        
-        # 计算命中率变异系数
-        hit_rate_mean = rule_data['hit_rate'].mean()
-        hit_rate_cv = hit_rate_std / hit_rate_mean if hit_rate_mean > 0 else 0
-        
-        # 计算相邻月份命中率变化率
-        monthly_changes = rule_data['hit_rate'].pct_change().dropna()
-        max_monthly_change = monthly_changes.max()
-        min_monthly_change = monthly_changes.min()
-        avg_monthly_change = monthly_changes.mean()
+        # 如果只有1个月数据，计算基本指标
+        if len(rule_data) == 1:
+            hit_rate_std = 0
+            hit_rate_mean = rule_data['hit_rate'].iloc[0] if len(rule_data) > 0 else 0
+            hit_rate_cv = 0
+            max_monthly_change = 0
+            min_monthly_change = 0
+            avg_monthly_change = 0
+        else:
+            # 计算命中率标准差
+            hit_rate_std = rule_data['hit_rate'].std()
+            
+            # 计算命中率变异系数
+            hit_rate_mean = rule_data['hit_rate'].mean()
+            hit_rate_cv = hit_rate_std / hit_rate_mean if hit_rate_mean > 0 else 0
+            
+            # 计算相邻月份命中率变化率
+            monthly_changes = rule_data['hit_rate'].pct_change().dropna()
+            
+            # 如果变化率为空（所有月份命中率相同），设置默认值
+            if len(monthly_changes) == 0:
+                max_monthly_change = 0
+                min_monthly_change = 0
+                avg_monthly_change = 0
+            else:
+                max_monthly_change = monthly_changes.max()
+                min_monthly_change = monthly_changes.min()
+                avg_monthly_change = monthly_changes.mean()
         
         stability_results[rule] = {
             'hit_rate_std': hit_rate_std,
@@ -192,7 +224,8 @@ def calculate_long_term_stability(rule_score, rule_col, hit_date_col, user_id_co
     
     # 合并数据，计算命中率
     daily_metrics = pd.merge(daily_hits, daily_total, on=hit_date_col, how='left')
-    daily_metrics['hit_rate'] = daily_metrics['hit_count'] / daily_metrics['total_count']
+    daily_metrics['hit_rate'] = daily_metrics['hit_count'] / daily_metrics['total_count'].replace(0, np.nan)
+    daily_metrics['hit_rate'] = daily_metrics['hit_rate'].fillna(0)
     
     long_term_stability = {}
     

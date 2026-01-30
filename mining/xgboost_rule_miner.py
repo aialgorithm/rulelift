@@ -4,13 +4,16 @@ from typing import List, Dict, Any, Tuple
 from sklearn.preprocessing import KBinsDiscretizer
 from sklearn.feature_selection import chi2
 from scipy.stats import chi2_contingency
+import warnings
 import matplotlib.pyplot as plt
 import seaborn as sns
-
 
 class XGBoostRuleMiner:
     """
     XGBoost规则挖掘类，参考XGBoost算法优化单特征规则挖掘
+    
+    **已废弃**：请使用 TreeRuleExtractor(algorithm='gbdt') 代替
+    此类保留仅用于向后兼容，将在未来版本中移除。
     
     Attributes:
         df: 输入的数据集
@@ -26,6 +29,8 @@ class XGBoostRuleMiner:
         """
         初始化XGBoost规则挖掘器
         
+        **已废弃**：请使用 TreeRuleExtractor(algorithm='gbdt') 代替
+        
         参数:
             df: 输入的数据集
             exclude_cols: 排除的字段名列表
@@ -35,8 +40,21 @@ class XGBoostRuleMiner:
             amount_col: 金额字段名，默认为None
             ovd_bal_col: 逾期金额字段名，默认为None
         """
-        self.df = df.copy()
+        # 发出deprecation warning
+        warnings.warn(
+            "XGBoostRuleMiner类已废弃，请使用TreeRuleExtractor(algorithm='gbdt')代替。"
+            "此类保留仅用于向后兼容，将在未来版本中移除。",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        if df is None or df.empty:
+            raise ValueError("输入的数据集不能为空")
+            
+        self.df = df.copy(deep=False)
         self.target_col = target_col
+        
+        if self.target_col not in self.df.columns:
+            raise ValueError(f"目标字段 '{self.target_col}' 不在数据集中")
         self.algorithm = algorithm
         self.precision = precision
         self.amount_col = amount_col
@@ -314,7 +332,11 @@ class XGBoostRuleMiner:
         """
         results = {}
         for feature in self.features:
-            results[feature] = self.analyze_feature(feature, n_bins)
+            try:
+                results[feature] = self.analyze_feature(feature, n_bins)
+            except Exception as e:
+                print(f"分析特征 {feature} 时发生错误: {str(e)}")
+                continue
         return results
     
     def get_top_rules(self, feature: str = None, top_n: int = 10, metric: str = 'lift') -> pd.DataFrame:

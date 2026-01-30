@@ -24,7 +24,7 @@ from .visualization import (
     generate_rule_report
 )
 
-__version__ = '1.2.4'
+__version__ = '1.3.0'
 __all__ = [
     # Utils
     'load_example_data',
@@ -41,7 +41,7 @@ __all__ = [
     'SingleFeatureRuleMiner',
     'MultiFeatureRuleMiner',
     'DecisionTreeRuleExtractor',
-    'XGBoostRuleMiner',
+    'XGBoostRuleMiner',  # Deprecated: 请使用 TreeRuleExtractor(algorithm='gbdt')
     'TreeRuleExtractor',
     
     # Visualization

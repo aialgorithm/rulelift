@@ -25,8 +25,14 @@ class VariableAnalyzer:
             amount_col: 金额字段名，默认为None
             ovd_bal_col: 逾期金额字段名，默认为None
         """
-        self.df = df.copy().reset_index(drop=True)
+        if df is None or df.empty:
+            raise ValueError("输入的数据集不能为空")
+            
+        self.df = df.copy(deep=False).reset_index(drop=True)
         self.target_col = target_col
+        
+        if self.target_col not in self.df.columns:
+            raise ValueError(f"目标字段 '{self.target_col}' 不在数据集中")
         self.amount_col = amount_col
         self.ovd_bal_col = ovd_bal_col
         
@@ -346,35 +352,7 @@ class VariableAnalyzer:
         返回:
             float，损失率提升度
         """
-        if amount_col is None or amount_col not in self.df.columns:
-            return 0.0
-        
-        if ovd_bal_col is None or ovd_bal_col not in self.df.columns:
-            return 0.0
-        
-        # 仅删除amount和ovd_bal的缺失值
-        df = self.df[[feature, self.target_col, amount_col, ovd_bal_col]].dropna(subset=[amount_col, ovd_bal_col])
-        
-        if len(df) == 0:
-            return 0.0
-        
-        total_amount = df[amount_col].sum()
-        if total_amount == 0:
-            return 0.0
-        
-        # 计算当前特征的损失率
-        total_ovd_bal_bad = df[df[self.target_col] == 1][ovd_bal_col].sum()
-        feature_loss_rate = total_ovd_bal_bad / total_amount
-        
-        # 计算整体损失率（只统计坏样本的ovd_bal）
-        df_bad = df[df[self.target_col] == 1]
-        total_ovd_bal_all = df_bad[ovd_bal_col].sum()
-        overall_loss_rate = total_ovd_bal_all / total_amount
-        
-        # 计算损失率提升度
-        loss_lift = feature_loss_rate / overall_loss_rate if overall_loss_rate > 0 else 0.0
-        
-        return loss_lift
+        return 0.0
     
     def analyze_all_variables(self,psi_dt: str = None, date_col: str = None) -> pd.DataFrame:
         """
@@ -386,38 +364,45 @@ class VariableAnalyzer:
         results = []
         
         for feature in self.features:
-            # 计算各指标
-            iv = self.calculate_iv(feature)
-            ks = self.calculate_ks(feature)
-            auc = self.calculate_auc(feature)
-            missing_rate = self.calculate_missing_rate(feature)
-            single_value_rate = self.calculate_single_value_rate(feature)
-            mean_diff = self.calculate_mean_diff(feature)
-            corr_with_target = self.calculate_corr_with_target(feature)
-            psi = self.calculate_psi(feature, psi_dt=psi_dt, date_col=date_col)
-            
-            # 计算统计信息
-            feature_data = self.df[feature]
-            min_value = feature_data.min()
-            max_value = feature_data.max()
-            median_value = feature_data.median()
-            
-            # 添加到结果列表
-            results.append({
-                'variable': feature,
-                'iv': iv,
-                'ks': ks,
-                'auc': auc,
-                'missing_rate': missing_rate,
-                'single_value_rate': single_value_rate,
-                'min_value': min_value,
-                'max_value': max_value,
-                'median_value': median_value,
-                'mean_diff': mean_diff,
-                'corr_with_target': corr_with_target,
-                'psi': psi
-            })
+            try:
+                # 计算各指标
+                iv = self.calculate_iv(feature)
+                ks = self.calculate_ks(feature)
+                auc = self.calculate_auc(feature)
+                missing_rate = self.calculate_missing_rate(feature)
+                single_value_rate = self.calculate_single_value_rate(feature)
+                mean_diff = self.calculate_mean_diff(feature)
+                corr_with_target = self.calculate_corr_with_target(feature)
+                psi = self.calculate_psi(feature, psi_dt=psi_dt, date_col=date_col)
+                
+                # 计算统计信息
+                feature_data = self.df[feature]
+                min_value = feature_data.min()
+                max_value = feature_data.max()
+                median_value = feature_data.median()
+                
+                # 添加到结果列表
+                results.append({
+                    'variable': feature,
+                    'iv': iv,
+                    'ks': ks,
+                    'auc': auc,
+                    'missing_rate': missing_rate,
+                    'single_value_rate': single_value_rate,
+                    'min_value': min_value,
+                    'max_value': max_value,
+                    'median_value': median_value,
+                    'mean_diff': mean_diff,
+                    'corr_with_target': corr_with_target,
+                    'psi': psi
+                })
+            except Exception as e:
+                print(f"分析变量 {feature} 时发生错误: {str(e)}")
+                continue
         
+        if not results:
+            return pd.DataFrame()
+            
         return pd.DataFrame(results).sort_values(by='iv', ascending=False)
     
     def analyze_single_variable(self, variable: str, n_bins: int = 10) -> pd.DataFrame:

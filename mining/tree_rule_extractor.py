@@ -3,8 +3,10 @@ import numpy as np
 from sklearn.tree import DecisionTreeClassifier, export_graphviz
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, IsolationForest
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
-from typing import List, Dict, Any, Tuple
+from sklearn.preprocessing import LabelEncoder, KBinsDiscretizer
+from scipy.stats import chi2_contingency
+from typing import List, Dict, Any, Tuple, Union
+import warnings
 import matplotlib.pyplot as plt
 import seaborn as sns
 import graphviz
@@ -22,17 +24,23 @@ class TreeRuleExtractor:
     支持的算法：
     - 'dt': 决策树（Decision Tree）
     - 'rf': 随机森林（Random Forest）
-    - 'chi2': 卡方决策树（Chi-square Decision Tree）
-    - 'xgb': XGBoost（梯度提升树）
+    - 'chi2': 卡方随机森林（Chi-square Random Forest）- 先对特征进行卡方分箱预处理，然后使用随机森林
+    - 'gbdt': 梯度提升树（Gradient Boosting Decision Tree）
+    - 'xgb': 已废弃，请使用'gbdt'（向后兼容）
     - 'isf': 孤立森林（Isolation Forest）
+    
+    注意：chi2算法采用卡方分箱预处理 + 随机森林的方式实现，不需要复杂的自定义决策树分裂逻辑。
     """
     
     def __init__(self, df: pd.DataFrame, target_col: str = 'ISBAD', exclude_cols: List[str] = None,
-                 algorithm: str = 'dt', max_depth: int = 5, min_samples_split: int = 10, 
-                 min_samples_leaf: int = 5, n_estimators: int = 10, max_features: str = 'sqrt',
+                 algorithm: str = 'dt', max_depth: int = 3, min_samples_split: int = 10, 
+                 min_samples_leaf: Union[int, float] = 5, n_estimators: int = 10, max_features: str = 'sqrt',
                  test_size: float = 0.3, random_state: int = 42,
                  amount_col: str = None, ovd_bal_col: str = None,
-                 feature_trends: Dict[str, int] = None):
+                 feature_trends: Dict[str, int] = None,
+                 learning_rate: float = 0.1, subsample: float = 1.0,
+                 min_bin_ratio: float = 0.05,
+                 isf_weights: Dict[str, float] = None):
         """
         初始化树规则提取器
         
@@ -40,11 +48,12 @@ class TreeRuleExtractor:
             df: 输入的数据集
             target_col: 目标字段名，默认为'ISBAD'
             exclude_cols: 排除的字段名列表，默认为None
-            algorithm: 算法类型，'dt'、'rf'、'chi2'、'xgb'、'isf'，默认为'dt'
-            max_depth: 决策树最大深度，默认为5
+            algorithm: 算法类型，'dt'、'rf'、'chi2'、'gbdt'、'isf'，默认为'dt'
+                     注意：'xgb'已废弃，请使用'gbdt'（向后兼容）
+            max_depth: 决策树最大深度，默认为3
             min_samples_split: 分裂节点所需的最小样本数，默认为10
-            min_samples_leaf: 叶子节点的最小样本数，默认为5
-            n_estimators: 随机森林中树的数量，默认为10
+            min_samples_leaf: 叶子节点的最小样本数，默认为5。可以是整数或小数，如果为小于1的小数，则自动转换为训练样本数的整数（如0.1转换为训练样本数的10%）
+            n_estimators: 随机森林/GBDT/孤立森林中树的数量，默认为10
             max_features: 每棵树分裂时考虑的最大特征数，'sqrt'或'log2'，默认为'sqrt'
             test_size: 测试集比例，默认为0.3
             random_state: 随机种子，默认为42
@@ -53,11 +62,26 @@ class TreeRuleExtractor:
             feature_trends: 特征与目标标签的正负相关性字典，{特征名: 1或-1}，默认为None
                           1表示正相关（特征越大，违约概率越高），只保留大于阈值的规则
                           -1表示负相关（特征越小，违约概率越高），只保留小于等于阈值的规则
+            learning_rate: GBDT学习率，默认为0.1
+            subsample: GBDT子采样比例，默认为1.0
+            min_bin_ratio: 卡方分箱的最小样本占比，默认为0.05（仅适用于chi2算法）
+            isf_weights: 孤立森林规则权重的字典，默认为None。
+                        可选键: 'purity' (坏客户纯度), 'anomaly' (异常分数), 'sample' (样本数量), 'hit' (异常坏客户命中比例)
         """
-        self.df = df.copy().reset_index(drop=True)
+        if df is None or df.empty:
+            raise ValueError("输入的数据集不能为空")
+            
+        self.df = df.copy(deep=False).reset_index(drop=True)
         self.target_col = target_col
-        self.exclude_cols = exclude_cols or []
-        self.algorithm = algorithm.lower()
+        
+        if self.target_col not in self.df.columns:
+            raise ValueError(f"目标字段 '{self.target_col}' 不在数据集中")
+            
+        self.exclude_cols = exclude_cols if exclude_cols else []
+        self.algorithm = algorithm
+        if self.algorithm == 'xgb':
+            self.algorithm = 'gbdt'
+        
         self.max_depth = max_depth
         self.min_samples_split = min_samples_split
         self.min_samples_leaf = min_samples_leaf
@@ -68,11 +92,35 @@ class TreeRuleExtractor:
         self.amount_col = amount_col
         self.ovd_bal_col = ovd_bal_col
         self.feature_trends = feature_trends
+        self.learning_rate = learning_rate
+        self.subsample = subsample
+        self.min_bin_ratio = min_bin_ratio
+        
+        # 初始化孤立森林权重
+        default_isf_weights = {
+            'purity': 0.5,
+            'anomaly': 0.3,
+            'sample': 0.15,
+            'hit': 0.05
+        }
+        if isf_weights:
+            default_isf_weights.update(isf_weights)
+        self.isf_weights = default_isf_weights
+        
+        # 向后兼容性处理：'xgb' -> 'gbdt'
+        self.algorithm = self.algorithm.lower()
+        if self.algorithm == 'xgb':
+            warnings.warn(
+                "算法'xgb'已废弃，请使用'gbdt'。'xgb'将在未来版本中移除。",
+                DeprecationWarning,
+                stacklevel=2
+            )
+            self.algorithm = 'gbdt'
         
         # 验证算法类型
-        valid_algorithms = ['dt', 'rf', 'chi2', 'xgb', 'isf']
+        valid_algorithms = ['dt', 'rf', 'chi2', 'gbdt', 'isf']
         if self.algorithm not in valid_algorithms:
-            raise ValueError(f"Invalid algorithm '{algorithm}'. Must be one of {valid_algorithms}")
+            raise ValueError(f"Invalid algorithm '{self.algorithm}'. Must be one of {valid_algorithms}")
         
         # 准备特征和目标变量，排除指定列
         drop_cols = [self.target_col] + self.exclude_cols
@@ -98,11 +146,77 @@ class TreeRuleExtractor:
             self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
                 self.X_encoded, self.y, test_size=test_size, random_state=random_state
             )
+            
+            # 处理min_samples_leaf小数参数
+            if isinstance(self.min_samples_leaf, float) and self.min_samples_leaf < 1:
+                original_min_samples_leaf = self.min_samples_leaf
+                self.min_samples_leaf = int(len(self.X_train) * self.min_samples_leaf)
+                print(f"min_samples_leaf参数为小数{original_min_samples_leaf:.2%}，自动转换为训练样本数的整数: {self.min_samples_leaf}")
+            
+            # 对chi2算法进行卡方分箱预处理
+            if self.algorithm == 'chi2':
+                print("正在进行卡方分箱预处理...")
+                self.X_train = self._preprocess_features_chi2(self.X_train, self.y_train)
+                # 保存训练集的分箱边界
+                self.chi2_bin_edges = {}
+                for col in self.X_train.columns:
+                    if pd.api.types.is_numeric_dtype(self.X[col]):
+                        # 对训练集进行分箱，获取分箱边界
+                        feature_values = self.X_train[col].dropna()
+                        target_values = self.y_train.loc[feature_values.index]
+                        
+                        # 初始分箱：使用等频分箱
+                        max_bins = min(50, len(feature_values.unique()))
+                        if max_bins >= 2:
+                            discretizer = KBinsDiscretizer(n_bins=max_bins, encode='ordinal', strategy='quantile')
+                            bins = discretizer.fit_transform(feature_values.values.reshape(-1, 1)).flatten()
+                            bin_edges_col = discretizer.bin_edges_[0]
+                            
+                            # 使用卡方检验合并相似分箱
+                            while len(bin_edges_col) > 2:
+                                chi2_scores = []
+                                for i in range(len(bin_edges_col) - 2):
+                                    merged_bins = bins.copy()
+                                    merged_bins[merged_bins == i+1] = i
+                                    
+                                    try:
+                                        contingency_table = pd.crosstab(merged_bins, target_values)
+                                        chi2_stat, p_value, dof, expected = chi2_contingency(contingency_table)
+                                        chi2_scores.append((i, chi2_stat))
+                                    except:
+                                        chi2_scores.append((i, 0))
+                                
+                                if chi2_scores:
+                                    min_chi2_idx, min_chi2_score = min(chi2_scores, key=lambda x: x[1])
+                                    
+                                    bin_counts = pd.Series(bins).value_counts().sort_index()
+                                    total_samples = len(bins)
+                                    min_required_samples = total_samples * self.min_bin_ratio
+                                    
+                                    if min_chi2_score < 3.841 and bin_counts.iloc[min_chi2_idx] >= min_required_samples:
+                                        bins[bins > min_chi2_idx] -= 1
+                                        bin_edges_col = np.delete(bin_edges_col, min_chi2_idx + 1)
+                                    else:
+                                        break
+                                else:
+                                    break
+                            
+                            # 保存分箱边界
+                            self.chi2_bin_edges[col] = bin_edges_col
+                
+                self.X_test = self._preprocess_features_chi2(self.X_test, self.y_test, bin_edges=self.chi2_bin_edges)
+                print(f"卡方分箱预处理完成")
         else:
             self.X_train = self.X_encoded
             self.y_train = self.y
             self.X_test = None
             self.y_test = None
+            
+            # 处理min_samples_leaf小数参数（孤立森林）
+            if isinstance(self.min_samples_leaf, float) and self.min_samples_leaf < 1:
+                original_min_samples_leaf = self.min_samples_leaf
+                self.min_samples_leaf = int(len(self.X_train) * self.min_samples_leaf)
+                print(f"min_samples_leaf参数为小数{original_min_samples_leaf:.2%}，自动转换为训练样本数的整数: {self.min_samples_leaf}")
         
         # 规则提取结果
         self.rules = []
@@ -114,7 +228,7 @@ class TreeRuleExtractor:
         对类别型特征进行编码
         """
         self.encoders = {}
-        self.X_encoded = self.X.copy()
+        self.X_encoded = self.X.copy(deep=False)
         
         # 处理NaN值
         self.X_encoded = self.X_encoded.fillna(0)
@@ -129,6 +243,98 @@ class TreeRuleExtractor:
         
         # 更新X为编码后的数据
         self.X = self.X_encoded
+    
+    def _preprocess_features_chi2(self, X: pd.DataFrame, y: pd.Series, bin_edges: Dict[str, np.ndarray] = None) -> pd.DataFrame:
+        """
+        使用卡方检验对特征进行分箱预处理
+        
+        参数:
+            X: 特征数据
+            y: 目标变量
+            bin_edges: 分箱边界字典（可选），如果提供则直接使用训练集的分箱边界
+            
+        返回:
+            分箱后的特征数据（原始特征值替换为卡方分箱的上限）
+        """
+        X_binned = X.copy(deep=False)
+        
+        for col in X.columns:
+            if not pd.api.types.is_numeric_dtype(X[col]):
+                # 跳过非数值型特征
+                continue
+            
+            feature_values = X[col].dropna()
+            target_values = y.loc[feature_values.index]
+            
+            # 如果提供了训练集的分箱边界，直接使用
+            if bin_edges and col in bin_edges:
+                bin_edges_col = bin_edges[col]
+                binned = pd.cut(feature_values, bins=bin_edges_col, right=True)
+            else:
+                # 初始分箱：使用等频分箱
+                max_bins = min(10, len(feature_values.unique()))
+                if max_bins < 2:
+                    continue
+                
+                discretizer = KBinsDiscretizer(n_bins=max_bins, encode='ordinal', strategy='quantile')
+                bins = discretizer.fit_transform(feature_values.values.reshape(-1, 1)).flatten()
+                
+                # 获取分箱边界
+                bin_edges_col = discretizer.bin_edges_[0]
+                
+                # 使用卡方检验合并相似分箱
+                while len(bin_edges_col) > 2:
+                    # 计算相邻分箱的卡方分数
+                    chi2_scores = []
+                    for i in range(len(bin_edges_col) - 2):
+                        # 合并分箱i和i+1
+                        merged_bins = bins.copy()
+                        merged_bins[merged_bins == i+1] = i
+                        
+                        # 创建列联表
+                        try:
+                            contingency_table = pd.crosstab(merged_bins, target_values)
+                            
+                            # 计算卡方检验
+                            chi2_stat, p_value, dof, expected = chi2_contingency(contingency_table)
+                            chi2_scores.append((i, chi2_stat))
+                        except:
+                            chi2_scores.append((i, 0))
+                    
+                    # 找到卡方分数最小的相邻分箱对（最相似的分箱）
+                    if chi2_scores:
+                        min_chi2_idx, min_chi2_score = min(chi2_scores, key=lambda x: x[1])
+                        
+                        # 检查是否满足最小样本占比
+                        bin_counts = pd.Series(bins).value_counts().sort_index()
+                        total_samples = len(bins)
+                        min_required_samples = total_samples * self.min_bin_ratio
+                        
+                        # 如果最小分箱的样本数满足要求，且卡方分数低于阈值，则合并分箱
+                        if min_chi2_score < 3.841 and bin_counts.iloc[min_chi2_idx] >= min_required_samples:
+                            # 合并分箱
+                            bins[bins > min_chi2_idx] -= 1
+                            # 移除分箱边界
+                            bin_edges_col = np.delete(bin_edges_col, min_chi2_idx + 1)
+                        else:
+                            break
+                    else:
+                        break
+            
+            # 使用最终的分箱边界创建分箱区间
+            binned = pd.cut(feature_values, bins=bin_edges_col, right=True)
+            
+            # 将原始特征值替换为卡方分箱的上限
+            if hasattr(binned, 'cat'):
+                # 从IntervalIndex获取上限
+                bin_upper_bounds = [interval.right for interval in binned.cat.categories]
+                bin_mapping = {interval.right: interval.right for interval in binned.cat.categories}
+                X_binned[col] = binned.apply(lambda x: bin_mapping.get(x.right, x.right) if pd.notna(x) else np.nan)
+            else:
+                # 如果没有categories属性，使用原始值
+                X_binned[col] = X[col]
+        
+        return X_binned
     
     def _initialize_model(self):
         """
@@ -156,16 +362,19 @@ class TreeRuleExtractor:
                 bootstrap=True
             )
         elif self.algorithm == 'chi2':
-            # 卡方决策树（使用决策树，但使用卡方检验选择分裂点）
-            model = DecisionTreeClassifier(
+            # 卡方随机森林（先对特征进行卡方分箱预处理，然后使用随机森林）
+            model = RandomForestClassifier(
+                n_estimators=self.n_estimators,
                 max_depth=self.max_depth,
                 min_samples_split=self.min_samples_split,
                 min_samples_leaf=self.min_samples_leaf,
+                max_features=self.max_features,
                 random_state=self.random_state,
-                criterion='gini'
+                n_jobs=-1,
+                bootstrap=True
             )
-        elif self.algorithm == 'xgb':
-            # XGBoost（使用梯度提升树GBDT）
+        elif self.algorithm == 'gbdt':
+            # 梯度提升树（GBDT）
             model = GradientBoostingClassifier(
                 n_estimators=self.n_estimators,
                 max_depth=self.max_depth,
@@ -173,15 +382,16 @@ class TreeRuleExtractor:
                 min_samples_leaf=self.min_samples_leaf,
                 max_features=self.max_features,
                 random_state=self.random_state,
-                learning_rate=0.1
+                learning_rate=self.learning_rate,
+                subsample=self.subsample
             )
         elif self.algorithm == 'isf':
             # 孤立森林（用于异常检测）
-            # 增加max_samples以允许树生长得更深，捕获更复杂的异常模式
+            # 调整contamination参数，从0.1降到0.05，增加异常样本数量
             model = IsolationForest(
                 n_estimators=self.n_estimators,
                 max_samples=min(512, len(self.X_encoded)),  # 从256增加到512
-                contamination=0.1,
+                contamination=0.05,  # 从0.1降到0.05
                 random_state=self.random_state,
                 n_jobs=-1
             )
@@ -197,27 +407,31 @@ class TreeRuleExtractor:
         返回:
             训练集准确率和测试集准确率（对于孤立森林，返回异常分数统计）
         """
-        if self.algorithm == 'isf':
-            # 孤立森林训练
-            self.model.fit(self.X_train)
-            # 计算异常分数
-            anomaly_scores = self.model.score_samples(self.X_train)
-            # 返回统计信息
-            mean_score = np.mean(anomaly_scores)
-            std_score = np.std(anomaly_scores)
-            print(f"孤立森林训练完成")
-            print(f"  平均异常分数: {mean_score:.4f}")
-            print(f"  标准差: {std_score:.4f}")
-            return mean_score, std_score
-        else:
-            # 其他算法训练
-            self.model.fit(self.X_train, self.y_train)
-            
-            # 计算准确率
-            train_accuracy = self.model.score(self.X_train, self.y_train)
-            test_accuracy = self.model.score(self.X_test, self.y_test)
-            
-            return train_accuracy, test_accuracy
+        try:
+            if self.algorithm == 'isf':
+                # 孤立森林训练
+                self.model.fit(self.X_train)
+                # 计算异常分数
+                anomaly_scores = self.model.score_samples(self.X_train)
+                # 返回统计信息
+                mean_score = np.mean(anomaly_scores)
+                std_score = np.std(anomaly_scores)
+                print(f"孤立森林训练完成")
+                print(f"  平均异常分数: {mean_score:.4f}")
+                print(f"  标准差: {std_score:.4f}")
+                return mean_score, std_score
+            else:
+                # 其他算法训练
+                self.model.fit(self.X_train, self.y_train)
+                
+                # 计算准确率
+                train_accuracy = self.model.score(self.X_train, self.y_train)
+                test_accuracy = self.model.score(self.X_test, self.y_test)
+                
+                return train_accuracy, test_accuracy
+        except Exception as e:
+            print(f"训练模型时发生错误: {str(e)}")
+            raise
     
     def extract_rules(self) -> List[Dict[str, Any]]:
         """
@@ -226,30 +440,35 @@ class TreeRuleExtractor:
         返回:
             规则列表
         """
-        if self.algorithm == 'dt':
-            self.rules = self._extract_rules_from_tree(self.model, tree_id=0)
-        elif self.algorithm == 'rf':
-            self.all_rules = self._extract_rules_from_forest()
-        elif self.algorithm == 'chi2':
-            self.rules = self._extract_rules_from_tree(self.model, tree_id=0)
-        elif self.algorithm == 'xgb':
-            # XGBoost（GBDT）：从所有树中提取规则
-            self.all_rules = self._extract_rules_from_gbdt()
-        elif self.algorithm == 'isf':
-            self.rules = self._extract_rules_from_isolation_forest()
-        
-        # 计算规则重要性
-        if self.algorithm in ['dt', 'chi2']:
-            self.rule_importance = {rule['rule_id']: self._calculate_rule_importance(rule) 
-                                  for rule in self.rules}
-        elif self.algorithm in ['rf', 'xgb']:
-            for rule in self.all_rules:
-                rule['importance'] = self._calculate_rule_importance(rule)
-        elif self.algorithm == 'isf':
-            for rule in self.rules:
-                rule['importance'] = self._calculate_rule_importance(rule)
-        
-        return self.rules if self.algorithm not in ['rf', 'xgb'] else self.all_rules
+        try:
+            if self.algorithm == 'dt':
+                self.rules = self._extract_rules_from_tree(self.model, tree_id=0)
+            elif self.algorithm == 'rf':
+                self.all_rules = self._extract_rules_from_forest()
+            elif self.algorithm == 'chi2':
+                # chi2算法使用的是RandomForestClassifier，应该调用_extract_rules_from_forest
+                self.all_rules = self._extract_rules_from_forest()
+            elif self.algorithm == 'gbdt':
+                # GBDT：从所有树中提取规则
+                self.all_rules = self._extract_rules_from_gbdt()
+            elif self.algorithm == 'isf':
+                self.rules = self._extract_rules_from_isolation_forest()
+            
+            # 计算规则重要性
+            if self.algorithm in ['dt']:
+                self.rule_importance = {rule['rule_id']: self._calculate_rule_importance(rule) 
+                                      for rule in self.rules}
+            elif self.algorithm in ['rf', 'chi2', 'gbdt']:
+                for rule in self.all_rules:
+                    rule['importance'] = self._calculate_rule_importance(rule)
+            elif self.algorithm == 'isf':
+                for rule in self.rules:
+                    rule['importance'] = self._calculate_rule_importance(rule)
+            
+            return self.rules if self.algorithm not in ['rf', 'chi2', 'gbdt'] else self.all_rules
+        except Exception as e:
+            print(f"提取规则时发生错误: {str(e)}")
+            raise
     
     def _extract_rules_from_tree(self, tree_model, tree_id: int = 0) -> List[Dict[str, Any]]:
         """
@@ -292,34 +511,18 @@ class TreeRuleExtractor:
                 value = tree_.value[node][0]
                 total_samples = value.sum()
                 
-                # 检测树类型：回归树 vs 分类树
-                is_regressor = len(value.shape) == 1 and value.shape[0] == 1
+                # 计算该叶子节点路径上样本的实际坏客户比例
+                badrate = self._calculate_leaf_node_badrate(current_conditions)
                 
-                if is_regressor:
-                    # DecisionTreeRegressor: value是1D数组，包含预测的数值（残差）
-                    prediction_value = float(value[0])
-                    
-                    # 计算该叶子节点路径上样本的实际坏客户比例
-                    badrate = self._calculate_leaf_node_badrate(current_conditions)
-                    
-                    class_distribution = {
-                        'good': 1.0 - badrate,
-                        'bad': badrate
-                    }
-                    # 对于回归树，使用预测值作为判断依据
-                    predicted_class = 1 if prediction_value > 0 else 0
-                    class_name = 'good' if predicted_class == 0 else 'bad'
-                    class_probability = badrate
-                else:
-                    # DecisionTreeClassifier: value是2D数组
-                    class_distribution = {
-                        'good': value[0] / total_samples,
-                        'bad': value[1] / total_samples
-                    }
-                    predicted_class = np.argmax(value)
-                    class_name = 'good' if predicted_class == 0 else 'bad'
-                    class_probability = class_distribution[class_name]
-                    prediction_value = None
+                class_distribution = {
+                    'good': 1.0 - badrate,
+                    'bad': badrate
+                }
+                
+                # 对于GBDT回归树，使用坏客户比例作为判断依据
+                predicted_class = 1 if badrate > 0.5 else 0
+                class_name = 'good' if predicted_class == 0 else 'bad'
+                class_probability = badrate
                 
                 # 创建规则
                 rule = {
@@ -331,7 +534,7 @@ class TreeRuleExtractor:
                     'sample_count': int(total_samples),
                     'class_distribution': class_distribution,
                     'tree_id': tree_id,
-                    'prediction_value': prediction_value  # 仅回归树有此字段
+                    'prediction_value': None
                 }
                 
                 # 根据feature_trends过滤规则条件
@@ -345,12 +548,12 @@ class TreeRuleExtractor:
                         if feature in self.feature_trends:
                             trend = self.feature_trends[feature]
                             
-                            # 正相关：只保留大于（>）的条件
-                            if trend == 1 and operator == '<=':
+                             # 正相关：只保留大于（>）的条件
+                            if trend == 1 and (operator == '<=' or operator == '<'):
                                 continue  # 剔除不符合的条件
                             
                             # 负相关：只保留小于等于（<=）的条件
-                            if trend == -1 and operator == '>':
+                            if trend == -1 and (operator == '>' or operator == '>='):
                                 continue  # 剔除不符合的条件
                         
                         filtered_conditions.append(condition)
@@ -383,12 +586,18 @@ class TreeRuleExtractor:
             threshold = condition['threshold']
             operator = condition['operator']
             
+            # 处理category类型（卡方分箱后的特征）
+            feature_values = self.X_train[feature]
+            if pd.api.types.is_categorical_dtype(feature_values):
+                # 将category类型转换为float类型
+                feature_values = feature_values.astype(float)
+            
             if operator == '<=':
-                mask &= (self.X_train[feature] <= threshold)
+                mask &= (feature_values <= threshold)
             elif operator == '>':
-                mask &= (self.X_train[feature] > threshold)
+                mask &= (feature_values > threshold)
             elif operator == '==':
-                mask &= (self.X_train[feature] == threshold)
+                mask &= (feature_values == threshold)
         
         hit_count = mask.sum()
         if hit_count == 0:
@@ -424,12 +633,12 @@ class TreeRuleExtractor:
                     trend = self.feature_trends[feature]
                     
                     # 正相关：只保留大于（>）的条件
-                    if trend == 1 and operator == '<=':
+                    if trend == 1 and (operator == '<=' or operator == '<'):
                         valid_rule = False
                         break
                     
                     # 负相关：只保留小于等于（<=）的条件
-                    if trend == -1 and operator == '>':
+                    if trend == -1 and (operator == '>' or operator == '>='):
                         valid_rule = False
                         break
             
@@ -478,12 +687,6 @@ class TreeRuleExtractor:
         # 规则筛选：过滤掉在训练集上命中样本过少的规则
         filtered_rules = []
         for rule in all_rules:
-            # 对于GBDT的回归树，使用预测值作为筛选标准
-            # 预测值 > 0 表示该路径对坏客户分类有正向贡献
-            prediction_value = rule.get('prediction_value', 0)
-            if prediction_value is None or prediction_value <= 0:
-                continue
-            
             # 计算该规则在训练集上的表现
             mask = np.ones(len(self.X_train), dtype=bool)
             for condition in rule['conditions']:
@@ -491,25 +694,31 @@ class TreeRuleExtractor:
                 threshold = condition['threshold']
                 operator = condition['operator']
                 
+                # 处理category类型（卡方分箱后的特征）
+                feature_values = self.X_train[feature]
+                if pd.api.types.is_categorical_dtype(feature_values):
+                    # 将category类型转换为float类型
+                    feature_values = feature_values.astype(float)
+                
                 if operator == '<=':
-                    mask &= (self.X_train[feature] <= threshold)
+                    mask &= (feature_values <= threshold)
                 elif operator == '>':
-                    mask &= (self.X_train[feature] > threshold)
+                    mask &= (feature_values > threshold)
                 elif operator == '==':
-                    mask &= (self.X_train[feature] == threshold)
+                    mask &= (feature_values == threshold)
             
             hit_count = mask.sum()
             
-            # 过滤掉命中样本过少的规则（至少命中10个样本）
-            if hit_count < 10:
+            # 过滤掉命中样本过少的规则（至少命中5个样本，从10降低到5）
+            if hit_count < 5:
                 continue
             
             # 计算坏客户纯度
             hit_bad = self.y_train[mask].sum()
             badrate = hit_bad / hit_count if hit_count > 0 else 0
             
-            # 降低坏客户纯度要求（从0.2降到0.05），增加规则数量
-            if badrate < 0.05:
+            # 降低坏客户纯度要求（从0.05降到0.01），增加规则数量
+            if badrate < 0.01:
                 continue
             
             # 更新规则的样本数量和坏客户纯度
@@ -554,7 +763,7 @@ class TreeRuleExtractor:
     
     def _extract_rules_from_isolation_forest(self) -> List[Dict[str, Any]]:
         """
-        从孤立森林中提取规则（基于异常检测，提取高坏客户纯度规则）
+        从孤立森林中提取规则（直接从树结构递归提取规则，限制深度3）
         
         返回:
             规则列表
@@ -562,401 +771,160 @@ class TreeRuleExtractor:
         # 计算异常分数
         anomaly_scores = self.model.score_samples(self.X_train)
         
-        # 将异常分数转换为预测标签（-1为异常，1为正常）
-        predictions = self.model.predict(self.X_train)
+        # 使用contamination超参数来确定异常阈值（设置宽松些，默认0.1）
+        contamination = 0.3  # 从0.05提高到0.3，增加异常样本数量
+        anomaly_threshold = np.percentile(anomaly_scores, int(contamination * 100))
         
-        # 找出异常样本
-        anomaly_indices = np.where(predictions == -1)[0]
-        
-        # 获取异常样本的标签
-        anomaly_labels = self.y_train.iloc[anomaly_indices]
-        
-        # 筛选出异常且为坏客户（ISBAD=1）的样本
-        bad_anomaly_indices = anomaly_indices[anomaly_labels == 1]
+        # 直接筛选出异常且为坏客户（ISBAD=1）的样本
+        bad_anomaly_mask = (anomaly_scores < anomaly_threshold) & (self.y_train == 1)
+        bad_anomaly_indices = np.where(bad_anomaly_mask)[0]
+        bad_anomaly_scores = anomaly_scores[bad_anomaly_indices]
         
         # 如果没有异常的坏客户样本，返回空规则列表
         if len(bad_anomaly_indices) == 0:
             return []
         
-        # 获取异常坏客户样本的特征值和异常分数
-        bad_anomaly_samples = self.X_train.iloc[bad_anomaly_indices]
-        bad_anomaly_scores = anomaly_scores[bad_anomaly_indices]
-        
-        # 分析这些样本的特征模式，生成多特征组合规则
-        rules = []
+        # 孤立森林的树结构
         feature_names = self.X.columns.tolist()
+        rules = []
         
-        # 生成单特征规则
-        for feature in feature_names:
-            # 获取坏客户异常样本的特征值
-            feature_values = bad_anomaly_samples[feature].values
+        # 递归遍历孤立森林中的每棵树，提取从根节点到叶子节点的路径作为规则
+        for tree_id, estimator in enumerate(self.model.estimators_):
+            tree = estimator.tree_
             
-            if len(feature_values) == 0:
-                continue
-            
-            # 计算特征值的统计信息
-            min_val = feature_values.min()
-            max_val = feature_values.max()
-            mean_val = feature_values.mean()
-            std_val = feature_values.std()
-            median_val = np.median(feature_values)
-            
-            # 生成多个候选规则
-            candidate_rules = []
-            
-            # 规则1：使用均值和标准差生成范围
-            if std_val > 0:
-                lower_bound = mean_val - std_val
-                upper_bound = mean_val + std_val
+            def extract_rules_from_tree_node(node_id, current_conditions, current_depth):
+                """
+                递归提取孤立森林树的规则
                 
-                # 规则1a：特征值在均值±标准差范围内
-                conditions1a = [{
-                    'feature': feature,
-                    'threshold': upper_bound,
-                    'operator': '<='
-                }]
-                conditions1b = [{
-                    'feature': feature,
-                    'threshold': lower_bound,
-                    'operator': '>'
-                }]
+                参数:
+                    node_id: 当前节点ID
+                    current_conditions: 当前路径的条件列表
+                    current_depth: 当前深度
+                """
+                # 如果深度超过3，停止递归
+                if current_depth > 3:
+                    return []
                 
-                candidate_rules.append(conditions1a)
-                candidate_rules.append(conditions1b)
-            
-            # 规则2：使用中位数和四分位数
-            q1 = np.percentile(feature_values, 25)
-            q3 = np.percentile(feature_values, 75)
-            
-            conditions2a = [{
-                'feature': feature,
-                'threshold': q3,
-                'operator': '<='
-            }]
-            conditions2b = [{
-                'feature': feature,
-                'threshold': q1,
-                'operator': '>'
-            }]
-            
-            candidate_rules.append(conditions2a)
-            candidate_rules.append(conditions2b)
-            
-            # 规则3：使用最大值和最小值
-            if max_val > min_val:
-                conditions3a = [{
-                    'feature': feature,
-                    'threshold': max_val,
-                    'operator': '<='
-                }]
-                conditions3b = [{
-                    'feature': feature,
-                    'threshold': min_val,
-                    'operator': '>'
-                }]
-                
-                candidate_rules.append(conditions3a)
-                candidate_rules.append(conditions3b)
-            
-            # 对每个候选规则计算在训练集上的表现
-            for conditions in candidate_rules:
-                # 计算该规则在训练集上的表现
-                mask = np.ones(len(self.X_train), dtype=bool)
-                for cond in conditions:
-                    cond_feature = cond['feature']
-                    threshold = cond['threshold']
-                    operator = cond['operator']
-                    
-                    if operator == '<=':
-                        mask &= (self.X_train[cond_feature] <= threshold)
-                    elif operator == '>':
-                        mask &= (self.X_train[cond_feature] > threshold)
-                    elif operator == '==':
-                        mask &= (self.X_train[cond_feature] == threshold)
-                
-                # 计算统计信息
-                hit_count = mask.sum()
-                if hit_count == 0 or hit_count < 10:  # 过滤掉命中样本过少的规则
-                    continue
-                
-                hit_bad = self.y_train[mask].sum()
-                hit_good = hit_count - hit_bad
-                
-                # 计算坏客户纯度
-                badrate = hit_bad / hit_count if hit_count > 0 else 0
-                
-                # 只保留坏客户纯度较高的规则（badrate >= 0.25）
-                if badrate < 0.25:
-                    continue
-                
-                # 计算该规则命中的异常坏客户比例
-                mask_bad_anomaly = np.zeros(len(bad_anomaly_indices), dtype=bool)
-                for i, idx in enumerate(bad_anomaly_indices):
-                    match = True
-                    for cond in conditions:
-                        cond_feature = cond['feature']
-                        threshold = cond['threshold']
-                        operator = cond['operator']
+                # 如果是叶子节点
+                if tree.feature[node_id] == -2:
+                    # 计算该规则在训练集上的表现
+                    mask = np.ones(len(self.X_train), dtype=bool)
+                    for condition in current_conditions:
+                        feature = condition['feature']
+                        threshold = condition['threshold']
+                        operator = condition['operator']
                         
                         if operator == '<=':
-                            match &= (self.X_train.iloc[idx][cond_feature] <= threshold)
+                            mask &= (self.X_train[feature] <= threshold)
                         elif operator == '>':
-                            match &= (self.X_train.iloc[idx][cond_feature] > threshold)
-                        elif operator == '==':
-                            match &= (self.X_train.iloc[idx][cond_feature] == threshold)
+                            mask &= (self.X_train[feature] > threshold)
                     
-                    mask_bad_anomaly[i] = match
-                
-                bad_anomaly_hit_ratio = mask_bad_anomaly.sum() / len(bad_anomaly_indices) if len(bad_anomaly_indices) > 0 else 0
-                
-                # 计算平均异常分数
-                avg_anomaly_score = bad_anomaly_scores[mask_bad_anomaly].mean() if mask_bad_anomaly.sum() > 0 else 0
-                
-                # 创建规则
-                rule = {
-                    'rule_id': len(rules),
-                    'conditions': conditions,
-                    'predicted_class': 1,  # 预测为坏客户
-                    'class_name': 'bad',
-                    'class_probability': badrate,
-                    'sample_count': int(hit_count),
-                    'class_distribution': {
-                        'good': hit_good / hit_count if hit_count > 0 else 0,
-                        'bad': badrate
-                    },
-                    'anomaly_score': avg_anomaly_score,
-                    'bad_anomaly_hit_ratio': bad_anomaly_hit_ratio
-                }
-                
-                rules.append(rule)
-        
-        # 生成多特征组合规则（2个特征）
-        from itertools import combinations
-        for feature1, feature2 in combinations(feature_names, 2):
-            # 获取坏客户异常样本的特征值
-            feature1_values = bad_anomaly_samples[feature1].values
-            feature2_values = bad_anomaly_samples[feature2].values
-            
-            if len(feature1_values) == 0 or len(feature2_values) == 0:
-                continue
-            
-            # 计算特征值的统计信息
-            f1_mean = feature1_values.mean()
-            f1_std = feature1_values.std()
-            f2_mean = feature2_values.mean()
-            f2_std = feature2_values.std()
-            
-            # 生成多特征组合规则
-            if f1_std > 0 and f2_std > 0:
-                # 规则：两个特征都在均值±标准差范围内
-                conditions = [
-                    {
-                        'feature': feature1,
-                        'threshold': f1_mean + f1_std,
-                        'operator': '<='
-                    },
-                    {
-                        'feature': feature2,
-                        'threshold': f2_mean + f2_std,
-                        'operator': '<='
+                    hit_count = mask.sum()
+                    
+                    # 降低过滤阈值（从5降到1），允许命中1个样本的规则
+                    if hit_count < 1:
+                        return []
+                    
+                    hit_bad = self.y_train[mask].sum()
+                    hit_good = hit_count - hit_bad
+                    
+                    # 计算坏客户纯度
+                    badrate = hit_bad / hit_count if hit_count > 0 else 0
+                    
+
+                    
+                    # 计算该规则命中的异常坏客户比例
+                    mask_bad_anomaly = np.zeros(len(bad_anomaly_indices), dtype=bool)
+                    for i, idx in enumerate(bad_anomaly_indices):
+                        match = True
+                        for condition in current_conditions:
+                            feature = condition['feature']
+                            threshold = condition['threshold']
+                            operator = condition['operator']
+                            
+                            if operator == '<=':
+                                match &= (self.X_train.iloc[idx][feature] <= threshold)
+                            elif operator == '>':
+                                match &= (self.X_train.iloc[idx][feature] > threshold)
+                        
+                        mask_bad_anomaly[i] = match
+                    
+                    bad_anomaly_hit_ratio = mask_bad_anomaly.sum() / len(bad_anomaly_indices) if len(bad_anomaly_indices) > 0 else 0
+                    
+                    # 计算平均异常分数
+                    avg_anomaly_score = bad_anomaly_scores[mask_bad_anomaly].mean() if mask_bad_anomaly.sum() > 0 else 0
+                    
+                    # 创建规则
+                    rule = {
+                        'rule_id': len(rules),
+                        'conditions': current_conditions,
+                        'predicted_class': 1,  # 预测为坏客户
+                        'class_name': 'bad',
+                        'class_probability': badrate,
+                        'sample_count': int(hit_count),
+                        'class_distribution': {
+                            'good': hit_good / hit_count if hit_count > 0 else 0,
+                            'bad': badrate
+                        },
+                        'tree_id': tree_id,
+                        'anomaly_score': avg_anomaly_score,
+                        'bad_anomaly_hit_ratio': bad_anomaly_hit_ratio
                     }
-                ]
-                
-                # 计算该规则在训练集上的表现
-                mask = np.ones(len(self.X_train), dtype=bool)
-                for cond in conditions:
-                    cond_feature = cond['feature']
-                    threshold = cond['threshold']
-                    operator = cond['operator']
                     
-                    if operator == '<=':
-                        mask &= (self.X_train[cond_feature] <= threshold)
-                    elif operator == '>':
-                        mask &= (self.X_train[cond_feature] > threshold)
-                    elif operator == '==':
-                        mask &= (self.X_train[cond_feature] == threshold)
-                
-                # 计算统计信息
-                hit_count = mask.sum()
-                if hit_count == 0 or hit_count < 10:  # 过滤掉命中样本过少的规则
-                    continue
-                
-                hit_bad = self.y_train[mask].sum()
-                hit_good = hit_count - hit_bad
-                
-                # 计算坏客户纯度
-                badrate = hit_bad / hit_count if hit_count > 0 else 0
-                
-                # 只保留坏客户纯度较高的规则（badrate >= 0.3）
-                if badrate < 0.3:
-                    continue
-                
-                # 计算该规则命中的异常坏客户比例
-                mask_bad_anomaly = np.zeros(len(bad_anomaly_indices), dtype=bool)
-                for i, idx in enumerate(bad_anomaly_indices):
-                    match = True
-                    for cond in conditions:
-                        cond_feature = cond['feature']
-                        threshold = cond['threshold']
-                        operator = cond['operator']
-                        
-                        if operator == '<=':
-                            match &= (self.X_train.iloc[idx][cond_feature] <= threshold)
-                        elif operator == '>':
-                            match &= (self.X_train.iloc[idx][cond_feature] > threshold)
-                        elif operator == '==':
-                            match &= (self.X_train.iloc[idx][cond_feature] == threshold)
+                    return [rule]
+                else:
+                    # 非叶子节点，递归遍历左右子树
+                    feature_name = feature_names[tree.feature[node_id]]
+                    threshold = tree.threshold[node_id]
                     
-                    mask_bad_anomaly[i] = match
-                
-                bad_anomaly_hit_ratio = mask_bad_anomaly.sum() / len(bad_anomaly_indices) if len(bad_anomaly_indices) > 0 else 0
-                
-                # 计算平均异常分数
-                avg_anomaly_score = bad_anomaly_scores[mask_bad_anomaly].mean() if mask_bad_anomaly.sum() > 0 else 0
-                
-                # 创建规则
-                rule = {
-                    'rule_id': len(rules),
-                    'conditions': conditions,
-                    'predicted_class': 1,  # 预测为坏客户
-                    'class_name': 'bad',
-                    'class_probability': badrate,
-                    'sample_count': int(hit_count),
-                    'class_distribution': {
-                        'good': hit_good / hit_count if hit_count > 0 else 0,
-                        'bad': badrate
-                    },
-                    'anomaly_score': avg_anomaly_score,
-                    'bad_anomaly_hit_ratio': bad_anomaly_hit_ratio
-                }
-                
-                rules.append(rule)
-        
-        # 生成多特征组合规则（3个特征）
-        for feature1, feature2, feature3 in combinations(feature_names, 3):
-            # 获取坏客户异常样本的特征值
-            feature1_values = bad_anomaly_samples[feature1].values
-            feature2_values = bad_anomaly_samples[feature2].values
-            feature3_values = bad_anomaly_samples[feature3].values
-            
-            if len(feature1_values) == 0 or len(feature2_values) == 0 or len(feature3_values) == 0:
-                continue
-            
-            # 计算特征值的统计信息
-            f1_mean = feature1_values.mean()
-            f1_std = feature1_values.std()
-            f2_mean = feature2_values.mean()
-            f2_std = feature2_values.std()
-            f3_mean = feature3_values.mean()
-            f3_std = feature3_values.std()
-            
-            # 生成多特征组合规则
-            if f1_std > 0 and f2_std > 0 and f3_std > 0:
-                # 规则：三个特征都在均值±标准差范围内
-                conditions = [
-                    {
-                        'feature': feature1,
-                        'threshold': f1_mean + f1_std,
+                    # 左子树（<=）
+                    left_conditions = current_conditions + [{
+                        'feature': feature_name,
+                        'threshold': threshold,
                         'operator': '<='
-                    },
-                    {
-                        'feature': feature2,
-                        'threshold': f2_mean + f2_std,
-                        'operator': '<='
-                    },
-                    {
-                        'feature': feature3,
-                        'threshold': f3_mean + f3_std,
-                        'operator': '<='
-                    }
-                ]
-                
-                # 计算该规则在训练集上的表现
-                mask = np.ones(len(self.X_train), dtype=bool)
-                for cond in conditions:
-                    cond_feature = cond['feature']
-                    threshold = cond['threshold']
-                    operator = cond['operator']
+                    }]
+                    left_rules = extract_rules_from_tree_node(
+                        tree.children_left[node_id], 
+                        left_conditions, 
+                        current_depth + 1
+                    )
                     
-                    if operator == '<=':
-                        mask &= (self.X_train[cond_feature] <= threshold)
-                    elif operator == '>':
-                        mask &= (self.X_train[cond_feature] > threshold)
-                    elif operator == '==':
-                        mask &= (self.X_train[cond_feature] == threshold)
-                
-                # 计算统计信息
-                hit_count = mask.sum()
-                if hit_count == 0 or hit_count < 10:  # 过滤掉命中样本过少的规则
-                    continue
-                
-                hit_bad = self.y_train[mask].sum()
-                hit_good = hit_count - hit_bad
-                
-                # 计算坏客户纯度
-                badrate = hit_bad / hit_count if hit_count > 0 else 0
-                
-                # 降低3特征规则的纯度要求（从0.3降到0.05）
-                if badrate < 0.05:
-                    continue
-                
-                # 计算该规则命中的异常坏客户比例
-                mask_bad_anomaly = np.zeros(len(bad_anomaly_indices), dtype=bool)
-                for i, idx in enumerate(bad_anomaly_indices):
-                    match = True
-                    for cond in conditions:
-                        cond_feature = cond['feature']
-                        threshold = cond['threshold']
-                        operator = cond['operator']
-                        
-                        if operator == '<=':
-                            match &= (self.X_train.iloc[idx][cond_feature] <= threshold)
-                        elif operator == '>':
-                            match &= (self.X_train.iloc[idx][cond_feature] > threshold)
-                        elif operator == '==':
-                            match &= (self.X_train.iloc[idx][cond_feature] == threshold)
+                    # 右子树（>）
+                    right_conditions = current_conditions + [{
+                        'feature': feature_name,
+                        'threshold': threshold,
+                        'operator': '>'
+                    }]
+                    right_rules = extract_rules_from_tree_node(
+                        tree.children_right[node_id], 
+                        right_conditions, 
+                        current_depth + 1
+                    )
                     
-                    mask_bad_anomaly[i] = match
-                
-                bad_anomaly_hit_ratio = mask_bad_anomaly.sum() / len(bad_anomaly_indices) if len(bad_anomaly_indices) > 0 else 0
-                
-                # 计算平均异常分数
-                avg_anomaly_score = bad_anomaly_scores[mask_bad_anomaly].mean() if mask_bad_anomaly.sum() > 0 else 0
-                
-                # 创建规则
-                rule = {
-                    'rule_id': len(rules),
-                    'conditions': conditions,
-                    'predicted_class': 1,  # 预测为坏客户
-                    'class_name': 'bad',
-                    'class_probability': badrate,
-                    'sample_count': int(hit_count),
-                    'class_distribution': {
-                        'good': hit_good / hit_count if hit_count > 0 else 0,
-                        'bad': badrate
-                    },
-                    'anomaly_score': avg_anomaly_score,
-                    'bad_anomaly_hit_ratio': bad_anomaly_hit_ratio
-                }
-                
-                rules.append(rule)
+                    return left_rules + right_rules
+            
+            # 从根节点开始递归提取规则
+            tree_rules = extract_rules_from_tree_node(0, [], 0)
+            rules.extend(tree_rules)
         
         # 按综合重要性排序：优先异常分数更高且纯度更高的规则
-        # 优化权重：提高坏客户纯度权重到50%，降低异常分数权重到30%
+        # 使用配置的权重计算最终得分
         rules.sort(key=lambda x: (
-            x['class_probability'] * 0.5 +  # 坏客户纯度权重50%（提高纯度权重）
-            (1 - x['anomaly_score']) * 0.3 +  # 异常分数权重30%（降低异常分数权重）
-            min(x['sample_count'] / 100, 1.0) * 0.15 +  # 样本数量权重15%（上限100）
-            x['bad_anomaly_hit_ratio'] * 0.05  # 异常坏客户命中比例权重5%
+            x['class_probability'] * self.isf_weights['purity'] +
+            (1 - x['anomaly_score']) * self.isf_weights['anomaly'] +
+            min(x['sample_count'] / 100, 1.0) * self.isf_weights['sample'] +
+            x['bad_anomaly_hit_ratio'] * self.isf_weights['hit']
         ), reverse=True)
         
         # 根据feature_trends过滤规则
         if self.feature_trends:
+            # 统计使用大于（>）条件的规则数量
+            gt_rules = [rule for rule in rules if any(cond['operator'] == '>' for cond in rule['conditions'])]
+            
             rules = self._filter_rules_by_feature_trends(rules)
-            print(f"   特征趋势过滤后的规则数量: {len(rules)}")
         
-        # 保留top 100条规则（从50增加到100）
-        return rules[:100]
+        # 保留top 200条规则
+        return rules[:200]
     
     def _calculate_rule_importance(self, rule: Dict[str, Any]) -> float:
         """
@@ -992,11 +960,15 @@ class TreeRuleExtractor:
         if self.algorithm == 'isf':
             raise ValueError("孤立森林不支持规则评估功能")
         
-        if self.algorithm in ['rf', 'xgb']:
+        if self.algorithm in ['rf', 'gbdt', 'chi2']:
             rules_to_evaluate = self.all_rules
         else:
             rules_to_evaluate = self.rules
         
+        if not rules_to_evaluate:
+            print("没有规则可以评估")
+            return pd.DataFrame()
+
         print(f"   评估的规则数量: {len(rules_to_evaluate)}")
         results = []
         
@@ -1038,6 +1010,10 @@ class TreeRuleExtractor:
             else:
                 overall_loss_rate_test = 0.0
         
+        # 整体badrate（基准badrate）
+        baseline_badrate_train = self.y_train.mean() if len(self.y_train) > 0 else 0.0
+        baseline_badrate_test = self.y_test.mean() if len(self.y_test) > 0 else 0.0
+        
         for rule in rules_to_evaluate:
             # 在训练集上应用规则
             mask_train = np.ones(len(self.X_train), dtype=bool)
@@ -1046,12 +1022,18 @@ class TreeRuleExtractor:
                 threshold = condition['threshold']
                 operator = condition['operator']
                 
+                # 处理category类型（卡方分箱后的特征）
+                feature_values = self.X_train[feature]
+                if pd.api.types.is_categorical_dtype(feature_values):
+                    # 将category类型转换为float类型
+                    feature_values = feature_values.astype(float)
+                
                 if operator == '<=':
-                    mask_train &= (self.X_train[feature] <= threshold)
+                    mask_train &= (feature_values <= threshold)
                 elif operator == '>':
-                    mask_train &= (self.X_train[feature] > threshold)
+                    mask_train &= (feature_values > threshold)
                 elif operator == '==':
-                    mask_train &= (self.X_train[feature] == threshold)
+                    mask_train &= (feature_values == threshold)
             
             # 计算训练集上的指标
             hit_count_train = mask_train.sum()
@@ -1068,12 +1050,11 @@ class TreeRuleExtractor:
             else:
                 hit_bad_train = self.y_train[mask_train].sum()
                 hit_good_train = hit_count_train - hit_bad_train
-                badrate_train = hit_bad_train / hit_count_train if hit_count_train > 0 else 0
-                precision_train = hit_bad_train / hit_count_train if hit_count_train > 0 else 0
+                badrate_train = hit_bad_train / hit_count_train
+                precision_train = hit_bad_train / hit_count_train
                 recall_train = hit_bad_train / total_bad_train if total_bad_train > 0 else 0
                 f1_train = 2 * (precision_train * recall_train) / (precision_train + recall_train) if (precision_train + recall_train) > 0 else 0
-                total_badrate_train = self.y_train.mean()
-                lift_train = badrate_train / total_badrate_train if total_badrate_train > 0 else 0
+                lift_train = badrate_train / baseline_badrate_train if baseline_badrate_train > 0 else 0
                 
                 # 计算训练集损失率指标
                 loss_rate_train = 0.0
@@ -1087,7 +1068,7 @@ class TreeRuleExtractor:
                             # 计算命中样本的逾期总金额（坏样本）
                             total_ovd_bal_bad_selected = train_subset[train_subset[self.target_col] == 1][self.ovd_bal_col].sum()
                             loss_rate_train = total_ovd_bal_bad_selected / total_amount_selected
-                            loss_lift_train = loss_rate_train / overall_loss_rate_train if overall_loss_rate_train > 0 else 0.0
+                            loss_lift_train = loss_rate_train / overall_loss_rate_train if overall_loss_rate_train > 0 else 0.0 if overall_loss_rate_train > 0 else 0.0
             
             # 在测试集上应用规则
             mask_test = np.ones(len(self.X_test), dtype=bool)
@@ -1096,12 +1077,18 @@ class TreeRuleExtractor:
                 threshold = condition['threshold']
                 operator = condition['operator']
                 
+                # 处理category类型（卡方分箱后的特征）
+                feature_values = self.X_test[feature]
+                if pd.api.types.is_categorical_dtype(feature_values):
+                    # 将category类型转换为float类型
+                    feature_values = feature_values.astype(float)
+                
                 if operator == '<=':
-                    mask_test &= (self.X_test[feature] <= threshold)
+                    mask_test &= (feature_values <= threshold)
                 elif operator == '>':
-                    mask_test &= (self.X_test[feature] > threshold)
+                    mask_test &= (feature_values > threshold)
                 elif operator == '==':
-                    mask_test &= (self.X_test[feature] == threshold)
+                    mask_test &= (feature_values == threshold)
             
             # 计算测试集上的指标
             hit_count_test = mask_test.sum()
@@ -1118,12 +1105,11 @@ class TreeRuleExtractor:
             else:
                 hit_bad_test = self.y_test[mask_test].sum()
                 hit_good_test = hit_count_test - hit_bad_test
-                badrate_test = hit_bad_test / hit_count_test if hit_count_test > 0 else 0
-                precision_test = hit_bad_test / hit_count_test if hit_count_test > 0 else 0
+                badrate_test = hit_bad_test / hit_count_test
+                precision_test = hit_bad_test / hit_count_test
                 recall_test = hit_bad_test / total_bad_test if total_bad_test > 0 else 0
                 f1_test = 2 * (precision_test * recall_test) / (precision_test + recall_test) if (precision_test + recall_test) > 0 else 0
-                total_badrate_test = self.y_test.mean()
-                lift_test = badrate_test / total_badrate_test if total_badrate_test > 0 else 0
+                lift_test = badrate_test / baseline_badrate_test if baseline_badrate_test > 0 else 0
                 
                 # 计算测试集损失率指标
                 loss_rate_test = 0.0
@@ -1137,7 +1123,7 @@ class TreeRuleExtractor:
                             # 计算命中样本的逾期总金额（坏样本）
                             total_ovd_bal_bad_selected = test_subset[test_subset[self.target_col] == 1][self.ovd_bal_col].sum()
                             loss_rate_test = total_ovd_bal_bad_selected / total_amount_selected
-                            loss_lift_test = loss_rate_test / overall_loss_rate_test if overall_loss_rate_test > 0 else 0.0
+                            loss_lift_test = loss_rate_test / overall_loss_rate_test if overall_loss_rate_test > 0 else 0.0 if overall_loss_rate_test > 0 else 0.0
             
             # 计算整体badrate（基准badrate）
             baseline_badrate_train = self.y_train.mean()
@@ -1224,7 +1210,7 @@ class TreeRuleExtractor:
             results.append(result)
         
         df = pd.DataFrame(results)
-        if len(df) > 0 and 'test_lift' in df.columns:
+        if not df.empty and 'test_lift' in df.columns:
             df = df.sort_values(by='test_lift', ascending=False)
         return df
     
@@ -1239,13 +1225,13 @@ class TreeRuleExtractor:
         返回:
             包含规则的DataFrame
         """
-        rules_to_export = self.rules if self.algorithm not in ['rf', 'xgb'] else self.all_rules
+        rules_to_export = self.rules if self.algorithm not in ['rf', 'gbdt'] else self.all_rules
         
-        if deduplicate and self.algorithm in ['rf', 'xgb']:
+        if deduplicate and self.algorithm in ['rf', 'gbdt']:
             rules_to_export = self._deduplicate_rules(rules_to_export)
         
         # 按lift倒序排序（新增）
-        if sort_by_lift and 'importance' in rules_to_export[0].keys():
+        if sort_by_lift and len(rules_to_export) > 0 and 'importance' in rules_to_export[0].keys():
             rules_to_export = sorted(rules_to_export, key=lambda x: x.get('importance', 0), reverse=True)
         
         # 转换为DataFrame
@@ -1271,8 +1257,12 @@ class TreeRuleExtractor:
         
         df = pd.DataFrame(df_list)
         
+        # 如果DataFrame为空，返回空DataFrame
+        if df.empty:
+            return df
+        
         # 按重要性排序
-        if not df.empty and 'importance' in df.columns:
+        if 'importance' in df.columns:
             df = df.sort_values(by='importance', ascending=False)
         
         return df
@@ -1435,8 +1425,13 @@ class TreeRuleExtractor:
             save_path: 保存路径，默认为None
             figsize: 图表大小
         """
-        if self.algorithm in ['rf', 'isf', 'xgb']:
+        if self.algorithm in ['rf', 'gbdt', 'isf']:
             print(f"{self.algorithm.upper()}算法不支持决策树结构可视化")
+            return
+        
+        # chi2算法使用RandomForestClassifier，不支持决策树结构可视化
+        if self.algorithm == 'chi2':
+            print(f"{self.algorithm.upper()}算法不支持决策树结构可视化（使用RandomForestClassifier）")
             return
         
         # 使用sklearn.tree.plot_tree绘制决策树

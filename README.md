@@ -1,7 +1,9 @@
 ## rulelift 是一个用于信用风险管理中策略规则的自动挖掘、有效性分析及监控的Python工具包。
 - 实时评估上线规则的效度（无需分流测试、无需表现标签）；
 - 自动化挖掘高价值的规则（挖掘并评估多种规则、符合业务解释性）；
+
 ### 项目统计
+
 [![PyPI Downloads下载量](https://img.shields.io/pypi/dm/rulelift?label=PyPI项目下载量)](https://pypistats.org/packages/rulelift)
 [![PyPI version](https://img.shields.io/pypi/v/rulelift.svg)](https://pypi.org/project/rulelift/)
 
@@ -29,10 +31,10 @@
 - **变量分布及全面分析**：特征分析缺失率、单值率、PSI、IV、KS、AUC、损失率、损失率提升度等指标，以及分布情况；
 - **单特征规则挖掘**：自动从单个特征中挖掘有效的风控规则
 - **多特征交叉规则挖掘**：发现特征之间的复杂交叉关系
-- **决策树规则提取**：从多种树模型（随机森林、XGB、孤立森林等）中提取可解释的规则
+- **决策树规则提取**：从多种树模型（随机森林、GBDT、卡方决策树、孤立森林等）中提取可解释的规则
 - **可视化支持**：多维度指标直观展示规则效果
 
-基于对上线规则的评估结果，我们可以及时发现规则效率低下或不稳定的问题，从而及时调整规则阈值或删减。也可以结合规则挖掘，新增有效规则，提升规则系统的整体效果及稳定性。
+**基于对上线规则的评估模块，我们可以及时发现规则效率低下或不稳定的问题，从而及时调整规则阈值或删减，实现规则A类(Ascending)调优，提升通过率并优化逾期情况。也可以结合规则挖掘模块，新增有效规则，降低逾期率，实现规则D类(Descending)调优，提升规则系统的整体效果及稳定性。**
 
 ### 快速开始
 
@@ -474,19 +476,18 @@ BAIDU_FQZSCORE         0.356000        1.000000          -0.252000
 
 ### 示例1：单特征规则挖掘
 
-单特征规则挖掘适用于快速发现单个特征的有效阈值，支持传统方法、XGBoost方法和卡方检验方法。
+单特征规则挖掘适用于快速发现单个特征的有效阈值，支持传统方法、GBDT方法和卡方检验方法。
 
 ##### 1.1 支持的方法
 
 | 方法 | 代码 | 特点 | 适用场景 |
 |------|------|------|----------|
-| 传统方法 | `None` | 基于分箱的简单统计 | 快速发现特征阈值 |
-| XGBoost方法 | `xgb` | 基于XGBoost算法的规则提取 | 快速挖掘的规则 |
+| 传统方法 | `None` | 基于等频分箱的简单统计 | 快速发现特征阈值 |
 | 卡方检验方法 | `chi2` | 基于卡方检验的规则提取 | 特征选择更严格 |
 
 ##### 1.2 核心功能
 
-- **多种方法支持**：支持传统方法、XGBoost方法、卡方检验方法
+- **多种方法支持**：支持传统方法、GBDT方法、卡方检验方法
 - **损失率指标**：支持使用损失率指标评估规则的有效性
 - **多种评估指标**：支持lift、badrate、precision、recall、f1、loss_rate、loss_lift等多种指标
 - **表格形式展示**：规则评估结果以表格形式展示，便于分析和筛选
@@ -554,6 +555,8 @@ feature_df = load_example_data('feas_target.csv')
 multi_miner = MultiFeatureRuleMiner(feature_df, target_col='ISBAD')
 
 # 绘制交叉热力图
+feature1 = 'ALI_FQZSCORE'
+feature2 = 'BAIDU_FQZSCORE'
 plt = multi_miner.plot_cross_heatmap(feature1, feature2, metric='lift')
 plt.savefig('cross_feature_heatmap.png', dpi=300, bbox_inches='tight')
 print("交叉特征热力图已保存到: cross_feature_heatmap.png")
@@ -576,7 +579,27 @@ cross_matrices_multi = multi_miner.generate_cross_matrices_excel(
 print(f"多特征交叉矩阵Excel文件已保存到: cross_analysis_multi_features.xlsx")
 ```
 
-##### 2.4 支持的指标说明
+##### 2.4 智能分箱策略说明
+
+多特征交叉规则挖掘支持多种智能分箱策略，以适应不同的业务场景和数据特征：
+
+| 分箱方法 | 代码 | 特点 | 适用场景 |
+|---------|------|------|----------|
+| 等频分箱 | `quantile` | 每个分箱包含大致相同的样本数 | 数据分布不均匀时，确保每个分箱有足够的样本 |
+| 卡方分箱 | `chi2` | 基于卡方检验合并相似分箱 | 需要更精细的分箱，保留风险区分度高的分箱 |
+| 自定义分箱 | 自定义阈值 | 使用业务经验指定的分箱阈值 | 有明确的业务规则或历史阈值 |
+
+**分箱策略选择建议**：
+- **等频分箱（quantile）**：适用于大多数场景，特别是当数据分布不均匀时，可以确保每个分箱都有足够的样本进行分析
+- **卡方分箱（chi2）**：适用于需要更精细分箱的场景，通过卡方检验合并相似的分箱，保留风险区分度高的分箱
+- **自定义分箱**：适用于有明确业务规则或历史阈值的场景，可以直接使用业务经验指定的分箱阈值
+
+**分箱参数说明**：
+- `max_unique_threshold`：最大允许的唯一值数量阈值，超过该阈值的特征将进行分箱处理，默认为5
+- `custom_bins`：自定义分箱阈值列表，例如 `[500, 600, 700]` 表示将特征分为4个区间
+- `binning_method`：分箱方法，支持 `'quantile'`（等频）和 `'chi2'`（卡方）
+
+##### 2.5 支持的指标说明
 
 多特征交叉分析支持多种指标，帮助策略人员全面评估特征组合的风险水平和业务价值：
 
@@ -598,13 +621,126 @@ print(f"多特征交叉矩阵Excel文件已保存到: cross_analysis_multi_featu
 - 策略人员可以根据交叉矩阵中的高lift区域制订规则
 
 **Excel文件内容示例**：（需要在初始化时提供amount_col和ovd_bal_col）
-
 | ALI_FQZSCORE | BAIDU_FQZSCORE | badrate | count | loss_rate | loss_lift |
 |--------------|----------------|---------|-------|-----------|-----------|
 | (500, 600]   | (300, 400]     | 0.6667  | 15    | 0.4567    | 2.89      |
 | (500, 600]   | (400, 500]     | 0.4000  | 25    | 0.3210    | 2.01      |
 | (600, 700]   | (300, 400]     | 0.5000  | 20    | 0.2890    | 1.81      |
 | (600, 700]   | (400, 500]     | 0.2000  | 30    | 0.1567    | 0.98      |
+
+##### 2.6 特征交叉矩阵分析方法完整说明
+
+**方法概述**：
+`generate_cross_matrix` 方法是特征交叉分析的核心方法，用于生成双特征交叉矩阵，包含badrate、样本占比等关键指标。
+
+**方法签名**：
+```python
+def generate_cross_matrix(self, feature1: str, feature2: str, 
+                     max_unique_threshold: int = 5,
+                     custom_bins1: List[float] = None,
+                     custom_bins2: List[float] = None,
+                     binning_method: str = 'quantile') -> pd.DataFrame
+```
+
+**参数说明**：
+- `feature1`：第一个特征名
+- `feature2`：第二个特征名
+- `max_unique_threshold`：最大允许的唯一值数量阈值，超过则进行分箱，默认为5
+- `custom_bins1`：第一个特征的自定义分箱阈值，默认为None（使用自动分箱）
+- `custom_bins2`：第二个特征的自定义分箱阈值，默认为None（使用自动分箱）
+- `binning_method`：分箱方法，支持 `'quantile'`（等频）或 `'chi2'`（卡方），默认为 `'quantile'`
+
+**返回值**：
+返回一个MultiIndex DataFrame，包含以下指标：
+- `badrate`：坏样本比例
+- `count`：样本数量
+- `bad_count`：坏样本数量
+- `good_count`：好样本数量
+- `sample_ratio`：样本占比
+- `lift`：提升度
+- `loss_rate`：损失率（需要提供amount_col和ovd_bal_col）
+- `loss_lift`：损失提升度（需要提供amount_col和ovd_bal_col）
+
+**使用示例**：
+```python
+from rulelift import MultiFeatureRuleMiner, load_example_data
+
+# 加载数据
+df = load_example_data('feas_target.csv')
+
+# 初始化多特征规则挖掘器
+multi_miner = MultiFeatureRuleMiner(df, target_col='ISBAD')
+
+# 生成交叉矩阵（使用等频分箱）
+cross_matrix = multi_miner.generate_cross_matrix(
+    feature1='ALI_FQZSCORE',
+    feature2='BAIDU_FQZSCORE',
+    max_unique_threshold=5,
+    binning_method='quantile'
+)
+
+# 生成交叉矩阵（使用卡方分箱）
+cross_matrix_chi2 = multi_miner.generate_cross_matrix(
+    feature1='ALI_FQZSCORE',
+    feature2='BAIDU_FQZSCORE',
+    max_unique_threshold=5,
+    binning_method='chi2'
+)
+
+# 生成交叉矩阵（使用自定义分箱）
+custom_bins1 = [500, 600, 700, 800]
+custom_bins2 = [300, 400, 500, 600]
+cross_matrix_custom = multi_miner.generate_cross_matrix(
+    feature1='ALI_FQZSCORE',
+    feature2='BAIDU_FQZSCORE',
+    max_unique_threshold=5,
+    custom_bins1=custom_bins1,
+    custom_bins2=custom_bins2
+)
+```
+
+**分箱策略对比**：
+| 分箱方法 | 优点 | 缺点 | 适用场景 |
+|---------|------|------|----------|
+| 等频分箱（quantile） | 每个分箱样本数均匀，避免样本稀疏 | 可能忽略数据分布特征 | 数据分布不均匀时 |
+| 卡方分箱（chi2） | 保留风险区分度高的分箱，更精细 | 计算复杂度较高 | 需要精细分箱时 |
+| 自定义分箱 | 符合业务经验，解释性强 | 需要业务知识 | 有明确业务规则时 |
+
+**交叉矩阵分析步骤**：
+1. **选择特征**：根据业务经验和数据分析，选择需要交叉分析的特征
+2. **选择分箱策略**：根据数据分布和业务需求，选择合适的分箱方法
+3. **生成交叉矩阵**：使用 `generate_cross_matrix` 方法生成交叉矩阵
+4. **分析高lift区域**：在交叉矩阵中找到lift值高的区域，这些区域对应高风险的特征组合
+5. **制定规则**：根据高lift区域制定规则，例如 "ALI_FQZSCORE <= 600 AND BAIDU_FQZSCORE <= 400"
+6. **验证规则**：使用 `get_cross_rules` 方法获取Top规则，并验证规则的有效性
+
+
+**可视化交叉矩阵**：
+```python
+# 绘制交叉热力图
+plt = multi_miner.plot_cross_heatmap(
+    feature1='ALI_FQZSCORE',
+    feature2='BAIDU_FQZSCORE',
+    metric='lift'
+)
+plt.savefig('cross_feature_heatmap.png', dpi=300, bbox_inches='tight')
+```
+
+**生成交叉矩阵Excel文件**：
+```python
+# 生成交叉矩阵Excel文件（包含多个指标）
+cross_matrices = multi_miner.generate_cross_matrices_excel(
+    features_list=['ALI_FQZSCORE', 'BAIDU_FQZSCORE', 'NUMBER OF LOAN APPLICATIONS TO PBOC'],
+    output_path='cross_analysis_multi_features.xlsx',
+    metrics=['badrate', 'count', 'sample_ratio', 'lift', 'loss_rate', 'loss_lift'],
+    binning_method='quantile'
+)
+```
+
+**注意事项**：
+1. **样本数量**：确保每个分箱都有足够的样本，否则统计指标不可靠
+2.  **特征相关性**：高度相关的特征进行交叉分析可能产生冗余规则
+
 ### 示例3：基于树模型的规则提取
 
 TreeRuleExtractor 提供了统一的树模型规则提取接口，支持多种算法和丰富的配置选项，适用于生成综合性的规则集。
@@ -617,13 +753,15 @@ TreeRuleExtractor 支持以下5种算法：
 |------|------|------|----------|
 | 决策树 | `dt` | 简单直观，易于解释 | 快速生成规则，适合初步探索 |
 | 随机森林 | `rf` | 多树集成，稳定性好 | 需要更稳定、多样性的规则效果 |
-| 卡方决策树 | `chi2` | 基于卡方检验分裂 | 特征选择更严格 |
-| XGBoost | `xgb` | 梯度提升，性能优秀 | 需要高精度的规则 |
+| 卡方决策树 | `chi2` | 基于卡方检验分裂的随机森林 | 特征分箱更合理 |
+| GBDT | `gbdt` | 梯度提升，性能优秀 | 需要高精度的规则 |
 | 孤立森林 | `isf` | 异常检测，无监督 | 发现异常模式 |
+
+**实践上可以 优先使用随机森林、GBDT等集成学习方法，通过调整超参数 n_estimators更大 max_features更小使得有更多及更多样规则，max_depth更小、min_samples_split较大，使得规则更简单更有解释性及统计可信度。传入业务字段（feature_trends）挖掘符合业务解释性规则。基于以上设置可以挖掘出符合业务逻辑的大量可靠规则以供选择**
 
 ##### 3.2 核心功能
 
-- **多种算法支持**：支持决策树、随机森林、卡方决策树、XGBoost、孤立森林5种算法
+- **多种算法支持**：支持决策树、随机森林、卡方决策树、GBDT、孤立森林5种算法
 - **超参数控制**：支持传入超参数控制树、规则复杂度，如max_depth、min_samples_split、min_samples_leaf、n_estimators等
 - **业务解释性配置**：支持传入业务字段（feature_trends）挖掘符合业务解释性规则，过滤不符合业务逻辑的规则
 - **多种指标评估**：支持多种指标（如lift、badrate、precision、recall、f1、loss_rate、loss_lift）评估挖掘规则的有效性
@@ -672,7 +810,7 @@ print(eval_results[['rule', 'test_hit_count', 'test_bad_count', 'test_badrate', 
 测试集准确率: 0.7600
 提取的规则数量: 7
 规则评估结果（前5条）:
-                                                rule  test_hit_count  test_bad_count  test_badrate  test_precision  test_recall   test_f1  test_lift       
+rule  test_hit_count  test_bad_count  test_badrate  test_precision  test_recall   test_f1  test_lift       
 5  NUMBER OF LOAN APPLICATIONS TO PBOC > 9.5000 A...              12              11      0.916667        0.916667     0.244444  0.385965   3.055556       
 1  NUMBER OF LOAN APPLICATIONS TO PBOC <= 9.5000 ...               9               6      0.666667        0.666667     0.133333  0.222222   2.222222       
 4  NUMBER OF LOAN APPLICATIONS TO PBOC > 9.5000 A...              11               6      0.545455        0.545455     0.133333  0.214286   1.818182       
@@ -730,14 +868,14 @@ print(eval_results_with_loss[['rule', 'train_loss_rate', 'train_loss_lift', 'tes
 支持传入业务字段（feature_trends）挖掘符合业务解释性规则，过滤不符合业务逻辑的规则。
 
 ```python
-# 初始化TreeRuleExtractor（XGBoost算法，使用特征趋势过滤）
-tree_miner_xgb = TreeRuleExtractor(
+# 初始化TreeRuleExtractor（GBDT算法，使用特征趋势过滤）
+tree_miner_gbdt = TreeRuleExtractor(
     feature_df, 
     target_col='ISBAD', 
     exclude_cols=['ID', 'CREATE_TIME', 'OVD_BAL', 'AMOUNT'],
-    algorithm='xgb',  # 使用XGBoost算法
+    algorithm='gbdt',  # 使用GBDT算法
     max_depth=3,
-    min_samples_split=10,
+    min_samples_split=0.05,
     min_samples_leaf=10,
     n_estimators=10,
     max_features='sqrt',
@@ -751,16 +889,16 @@ tree_miner_xgb = TreeRuleExtractor(
 )
 
 # 训练模型
-train_acc, test_acc = tree_miner_xgb.train()
+train_acc, test_acc = tree_miner_gbdt.train()
 print(f"训练集准确率: {train_acc:.4f}")
 print(f"测试集准确率: {test_acc:.4f}")
 
 # 提取规则
-xgb_rules = tree_miner_xgb.extract_rules()
-print(f"提取的规则数量: {len(xgb_rules)}")
+gbdt_rules = tree_miner_gbdt.extract_rules()
+print(f"提取的规则数量: {len(gbdt_rules)}")
 
 # 规则评估
-eval_results = tree_miner_xgb.evaluate_rules()
+eval_results = tree_miner_gbdt.evaluate_rules()
 print(f"规则评估结果（前5条）:")
 print(eval_results[['rule', 'test_hit_count', 'test_bad_count', 'test_badrate', 'test_hit_rate', 'test_baseline_badrate', 'test_badrate_after_interception', 'test_badrate_reduction', 'badrate_diff', 'test_precision', 'test_recall', 'test_f1', 'test_lift']].head())
 ```
@@ -784,11 +922,11 @@ print(eval_results[['rule', 'test_hit_count', 'test_bad_count', 'test_badrate', 
 超参数说明
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|----------|------|
-| `algorithm` | str | `'dt'` | 算法类型：'dt'、'rf'、'chi2'、'xgb'、'isf' |
-| `max_depth` | int | `5` | 决策树最大深度，控制树的复杂度 |
+| `algorithm` | str | `'dt'` | 算法类型：'dt'、'rf'、'chi2'、'gbdt'、'isf' |
+| `max_depth` | int | `3` | 决策树最大深度，控制树的复杂度 |
 | `min_samples_split` | int | `10` | 分裂节点所需的最小样本数，控制规则精度 |
-| `min_samples_leaf` | int | `5` | 叶子节点的最小样本数，控制规则精度 |
-| `n_estimators` | int | `10` | 随机森林/XGBoost/孤立森林中树的数量 |
+| `min_samples_leaf` | int | `5` | 叶子节点的最小样本数，控制规则精度。但传入<1的小数如0.05则设置为训练集样本数5%，值越大避免叶子节点过于复杂 |
+| `n_estimators` | int | `10` | 随机森林/GBDT/孤立森林中树的数量 |
 | `max_features` | str | `'sqrt'` | 每棵树分裂时考虑的最大特征数：'sqrt'或'log2' |
 | `test_size` | float | `0.3` | 测试集比例 |
 | `random_state` | int | `42` | 随机种子，保证结果可复现 |
@@ -810,8 +948,7 @@ print(eval_results[['rule', 'test_hit_count', 'test_bad_count', 'test_badrate', 
 | test_hit_rate | float | 测试集命中样本数 / 测试集总样本数 | 规则在测试集上的命中率 |
 | test_baseline_badrate | float | 测试集总坏样本数 / 测试集总样本数 | 测试集整体坏样本率（基准） |
 | test_badrate_after_interception | float | (测试集总坏样本数 - 命中坏样本数) / (测试集总样本数 - 命中样本数) | 规则拦截后剩余样本的坏样本率 |
-| test_badrate_reduction | float | [(基准坏样本率 - 拦截后坏样本率) / 基准坏样本率] / 命中率 | 规则对坏样本率的降低幅度 |
-
+| test_badrate_reduction | float | [(基准坏样本率 - 拦截后坏样本率) / 基准坏样本率] / 命中率 | 规则效率 |
 | badrate_diff | float | 训练集lift - 测试集lift | 训练集和测试集提升度的差异，衡量规则泛化能力 |
 
 ##### 3.7 可视化功能
@@ -831,6 +968,87 @@ print("决策树结构图已保存到: images/tree_decision_structure.pdf")
 tree_miner.plot_rule_evaluation(save_path='images/tree_rule_evaluation.png')
 print("规则评估图已保存到: images/tree_rule_evaluation.png")
 ```
+
+### 最佳实践
+
+#### 1. 规则评估最佳实践
+
+**数据准备**：
+- 确保规则命中数据包含必要的列：RULE、USER_ID、HIT_DATE、USER_LEVEL、USER_LEVEL_BADRATE、USER_TARGET
+- 如果使用用户评级评估，确保USER_LEVEL_BADRATE列准确反映每个评级的历史坏账率
+- 如果使用实际逾期数据，确保USER_TARGET列准确反映用户的实际逾期情况
+
+**评估指标选择**：
+- **基于用户评级评估**：适用于没有实际逾期数据的场景，使用estimated_badrate_pred和estimated_lift_pred
+- **基于实际逾期评估**：适用于有实际逾期数据的场景，使用actual_badrate和actual_lift
+- **综合评估**：同时使用用户评级和实际逾期数据，获得更全面的评估结果
+
+**稳定性监控**：
+- 使用include_stability=True参数启用稳定性指标计算
+- 关注hit_rate_cv（命中率变异系数），值越小说明规则越稳定
+- 关注avg_monthly_change（月度平均变化），值越小说明规则效果越稳定
+
+#### 2. 规则挖掘最佳实践
+
+**算法选择**：
+- **决策树（dt）**：适合快速探索和初步分析，规则简单直观
+- **随机森林（rf）**：适合需要更稳定、多样性的规则效果
+- **卡方决策树（chi2）**：适合需要更严格特征选择的场景
+- **GBDT（gbdt）**：适合需要高精度规则的场景，性能优秀
+- **孤立森林（isf）**：适合发现异常模式的场景，无监督学习
+
+**参数调优**：
+- **max_depth**：控制树的复杂度，建议值3-5
+- **min_samples_split**：控制规则精度，建议值10-20
+- **min_samples_leaf**：控制叶子节点的最小样本数，建议值5-10。但传入<1的小数如0.05则设置为训练集样本数5%，值越大避免叶子节点过于复杂
+- **n_estimators**：控制树的数量，建议值10-100
+- **max_features**：每棵树分裂时考虑的最大特征数：'sqrt'或'log2'
+- **test_size**：测试集比例，建议值0.2-0.3
+- **random_state**：随机种子，保证结果可复现，建议值42
+
+**业务解释性配置**：
+- 使用feature_trends参数配置特征与目标标签的正负相关性
+- 确保规则符合业务逻辑，避免生成不符合业务解释性的规则
+- 例如：欺诈分数应该与违约概率负相关，申请次数应该与违约概率正相关
+
+**分箱策略选择**：
+- **等频分箱（quantile）**：适用于大多数场景，确保每个分箱都有足够的样本
+- **卡方分箱（chi2）**：适用于需要更精细分箱的场景，保留风险区分度高的分箱
+- **自定义分箱**：适用于有明确业务规则或历史阈值的场景
+
+
+### 常见问题解答
+
+#### Q1：如何处理缺失值？
+**A**：缺失值会被自动处理：
+- 在规则评估时，缺失值会被自动忽略
+- 在规则挖掘时，缺失值会被自动排除
+- 建议在数据预处理阶段填充或删除缺失值
+
+#### Q2：如何提高规则的泛化能力？
+**A**：提高规则泛化能力的方法：
+- 增加min_samples_split和min_samples_leaf参数值
+- 减少max_depth参数值
+- 使用随机森林或GBDT等集成方法
+- 在测试集上验证规则效果，避免过拟合
+
+### 性能优化建议
+
+#### 1. 数据预处理优化
+- 删除不必要的列，减少内存使用
+- 使用合适的数据类型（如category类型用于分类变量）
+- 提前进行数据清洗，避免重复计算
+
+#### 2. 规则挖掘优化
+- 使用合适的max_depth值，避免树过深
+- 使用合适的min_samples_split和min_samples_leaf值，避免规则过细
+- 对于大数据集，可以增加n_estimators值提高性能
+
+#### 3. 规则评估优化
+- 使用向量化操作，避免循环
+- 使用pandas的内置函数，提高计算效率
+- 对于大量规则，可以使用并行计算
+
 
 
 ## 许可证

@@ -24,8 +24,14 @@ class MultiFeatureRuleMiner:
             amount_col: 金额字段名，默认为None
             ovd_bal_col: 逾期金额字段名，默认为None
         """
-        self.df = df.copy().reset_index(drop=True)
+        if df is None or df.empty:
+            raise ValueError("输入的数据集不能为空")
+            
+        self.df = df.copy(deep=False).reset_index(drop=True)
         self.target_col = target_col
+        
+        if self.target_col not in self.df.columns:
+            raise ValueError(f"目标字段 '{self.target_col}' 不在数据集中")
         self.amount_col = amount_col
         self.ovd_bal_col = ovd_bal_col
         
@@ -58,7 +64,7 @@ class MultiFeatureRuleMiner:
             # 使用自定义分箱阈值
             bins = custom_bins
             # 使用pd.cut创建分箱区间标签
-            binned = pd.cut(data, bins=bins, include_lowest=True, right=True)
+            binned = pd.cut(data, bins=bins, right=True)
         else:
             # 使用等频分箱
             discretizer = KBinsDiscretizer(n_bins=max_bins, encode='ordinal', strategy='quantile')
@@ -66,7 +72,7 @@ class MultiFeatureRuleMiner:
             # 获取分箱边界
             bin_edges = discretizer.bin_edges_[0]
             # 使用pd.cut创建分箱区间标签
-            binned = pd.cut(data, bins=bin_edges, include_lowest=True, right=True)
+            binned = pd.cut(data, bins=bin_edges, right=True)
         
         # 转换为Series，保留原始索引
         binned_series = binned
@@ -80,7 +86,7 @@ class MultiFeatureRuleMiner:
     def _prepare_feature(self, feature: str, max_unique_threshold: int = 5, 
                        custom_bins: List[float] = None, binning_method: str = 'quantile') -> pd.Series:
         """
-        准备特征，对取值较多的特征进行分箱处理
+        准备特征，对取值较多的特征进行分箱处理（改进版）
         
         参数:
             feature: 特征名
@@ -101,7 +107,7 @@ class MultiFeatureRuleMiner:
                     return self._bin_numeric_feature(feature, max_bins=len(custom_bins)-1, 
                                                   custom_bins=custom_bins)
                 elif binning_method == 'chi2':
-                    # 使用卡方分箱
+                    # 使用改进的卡方分箱
                     return self._bin_with_chi2(feature, max_bins=max_unique_threshold)
                 else:
                     # 使用等频分箱（默认）
@@ -115,7 +121,7 @@ class MultiFeatureRuleMiner:
     
     def _bin_with_chi2(self, feature: str, max_bins: int = 5) -> pd.Series:
         """
-        使用卡方检验进行分箱
+        使用卡方检验进行分箱（改进版）
         
         参数:
             feature: 特征名
@@ -127,17 +133,49 @@ class MultiFeatureRuleMiner:
         feature_values = self.df[feature].dropna()
         target_values = self.df.loc[feature_values.index, self.target_col]
         
-        # 初始分箱
+        # 初始分箱：使用等频分箱
         discretizer = KBinsDiscretizer(n_bins=max_bins, encode='ordinal', strategy='quantile')
-        discretizer.fit(feature_values.values.reshape(-1, 1))
+        bins = discretizer.fit_transform(feature_values.values.reshape(-1, 1)).flatten()
         
         # 获取分箱边界
         bin_edges = discretizer.bin_edges_[0]
         
-        # 计算卡方分数，合并相似分箱
-        # 这里简化处理，实际应用中可以使用更复杂的卡方分箱算法
-        # 使用pd.cut创建分箱区间标签
-        binned = pd.cut(feature_values, bins=bin_edges, include_lowest=True, right=True)
+        # 使用卡方检验合并相似分箱
+        while len(bin_edges) > 2:
+            # 计算相邻分箱的卡方分数
+            chi2_scores = []
+            for i in range(len(bin_edges) - 2):
+                # 合并分箱i和i+1
+                merged_bins = bins.copy()
+                merged_bins[merged_bins == i+1] = i
+                
+                # 创建列联表
+                try:
+                    contingency_table = pd.crosstab(merged_bins, target_values)
+                    
+                    # 计算卡方检验
+                    chi2_stat, p_value, dof, expected = chi2_contingency(contingency_table)
+                    chi2_scores.append((i, chi2_stat))
+                except:
+                    chi2_scores.append((i, 0))
+            
+            # 找到卡方分数最小的相邻分箱对（最相似的分箱）
+            if chi2_scores:
+                min_chi2_idx, min_chi2_score = min(chi2_scores, key=lambda x: x[1])
+                
+                # 如果卡方分数低于阈值，合并分箱
+                if min_chi2_score < 3.841:  # p=0.05, df=1的卡方阈值
+                    # 合并分箱
+                    bins[bins > min_chi2_idx] -= 1
+                    # 移除分箱边界
+                    bin_edges = np.delete(bin_edges, min_chi2_idx + 1)
+                else:
+                    break
+            else:
+                break
+        
+        # 使用最终的分箱边界创建分箱区间
+        binned = pd.cut(feature_values, bins=bin_edges, right=True)
         
         return pd.Series(binned, index=feature_values.index)
     

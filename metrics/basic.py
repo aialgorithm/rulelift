@@ -98,7 +98,7 @@ def calculate_actual_metrics(rule_score, user_rule_df, user_id_col, user_target_
         actual_lift = actual_badrate / (total_actual_bads / total_samples) if total_samples > 0 else 0
         
         # 计算F1分数，使用更简洁的字段名
-        f1_score = 2 * (actual_precision * actual_recall) / (actual_precision + actual_recall) if (actual_precision + actual_recall) > 0 else 0
+        f1_score = 2 * actual_precision * actual_recall / (actual_precision + actual_recall) if (actual_precision + actual_recall) > 0 else 0
         
         actual_metrics[rule] = {
             'actual_badrate': actual_badrate,
