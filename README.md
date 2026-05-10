@@ -41,8 +41,7 @@
 # 使用pip安装（推荐）
 pip install rulelift
 
-# 从源码安装
-pip install git+https://github.com/aialgorithm/rulelift.git
+
 
 注： 考虑风控场景通常是内网使用，文末附上离线安装rulelift的教程
 ```
@@ -56,1003 +55,2578 @@ pip install git+https://github.com/aialgorithm/rulelift.git
 | matplotlib | >=3.3.0,<3.11.0 | 基础可视化 |
 | seaborn | >=0.11.0,<0.14.0 | 统计可视化 |
 | openpyxl | >=3.0.0 | Excel文件读写 |
-### 基本使用示例
+---
+title: RuleLift - 风控规则挖掘与评估工具包 | Credit Risk Rule Mining Toolkit
+description: 专业的信用风险管理 Python 工具包，支持规则自动挖掘、智能评估和监控。Automated rule mining and evaluation toolkit for credit risk management.
+keywords: rule mining, rule extraction, credit risk management, decision rule extraction, tree rules, fraud detection rules, 风控规则挖掘, 规则评估, 信用风险
+---
+
+# RuleLift: 风控规则挖掘与评估工具包
+
+[![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Code Style](https://img.shields.io/badge/code%20style-black-4400cc.svg)](https://github.com/psf/black)
+
+[English](#english-version) | [中文](#中文版本)
+
+---
+
+<a name="中文版本"></a>
+
+## 项目概述
+
+**RuleLift** 是一个专业的 **Python 信用风险管理工具包**，专注于 **风控规则挖掘**、**规则评估** 和 **规则监控**。
+
+### 为什么选择 RuleLift？
+
+在风控领域，规则系统因其配置便捷性和较强的解释性而被广泛应用，但也存在明显的痛点：
+
+| 传统痛点 | RuleLift 解决方案 |
+|---------|------------------|
+| 规则线上效果监控难：被拦截客户无后续表现数据 | 基于用户评级分布实时评估规则效果，无需 A/B 测试 |
+| 规则挖掘复杂：手动挖掘和调整规则耗时耗力 | 自动从数据中挖掘高价值业务规则 |
+| 特征分析繁琐：需切换多个工具 | 一站式完成 IV/KS/AUC/PSI 等全部分析 |
+| 大数据处理困难：内存溢出崩溃 | 内存优化设计，支持万级特征、百万级样本 |
+
+### 核心能力
+
+```
+RuleLift
+├── 规则智能评估   - 无需分流测试，实时评估规则效果
+├── 规则自动挖掘   - 支持单特征、多特征交叉、树模型等多种挖掘方式
+├── 变量深度分析   - IV/KS/AUC/PSI 等指标全面分析
+├── 内存优化设计   - 批处理、向量化、缓存机制，支持大规模数据
+└── 一体化Pipeline - 自动化全流程规则挖掘
+```
+
+### 项目统计
+
+- **支持数据规模**: 百万级样本 × 万级特征
+- **核心算法**: 单特征挖掘、多特征交叉、决策树/随机森林/GBDT/卡方随机森林/孤立森林
+- **评估指标**: IV/KS/AUC/PSI/Lift/F1/Recall/Precision
+- **内存优化**: Numpy向量化 + 批处理 + 缓存机制
+
+---
+
+## 目录
+
+- [快速开始](#快速开始)
+- [简化调用](#简化调用)
+- [核心功能](#核心功能)
+- [Pipeline 一体化分析](#pipeline-一体化分析)
+- [API 完整参考](#api-完整参考)
+- [内存优化与性能](#内存优化与性能)
+- [最佳实践](#最佳实践)
+- [架构文档](#架构文档)
+- [常见问题](#常见问题)
+- [更新日志](#更新日志)
+
+---
+
+## 快速开始
+
+### 安装
+
+```bash
+pip install rulelift
+```
+
+**环境要求**：Python >= 3.8 | pandas >= 1.0.0 | numpy >= 1.18.0 | scikit-learn >= 0.24.0 | matplotlib >= 3.3.0
+
+### 5分钟上手
 
 ```python
-# 加载示例数据
-from rulelift import load_example_data, analyze_rules, TreeRuleExtractor
-
-# 1. 规则评估示例（使用用户评级评估）
-print("=== 规则评估示例（使用用户评级） ===")
-# 加载规则命中数据
-hit_rule_df = load_example_data('hit_rule_info.csv')
-
-# 使用用户评级评估规则效度
-result = analyze_rules(hit_rule_df, user_level_badrate_col='USER_LEVEL_BADRATE')
-print(f"规则评估结果（前5条）:")
-print(result[['rule', 'estimated_badrate_pred', 'estimated_lift_pred']].head())
-
-# 2. 规则挖掘示例（使用决策树规则挖掘）
-print("\n=== 规则挖掘示例（使用决策树） ===")
-# 加载用户特征数据集
-feature_df = load_example_data('feas_target.csv')
-# 初始化决策树规则提取器
-tree_miner = TreeRuleExtractor(
-        feature_df, 
-        target_col='ISBAD', 
-        exclude_cols=['ID', 'CREATE_TIME','OVD_BAL','AMOUNT'],
-        algorithm='dt',
-        max_depth=3, 
-        min_samples_split=20,
-        min_samples_leaf=10,
-        test_size=0.3,
-        random_state=42
-    )
-# 训练模型
-train_acc, test_acc = tree_miner.train()
-print(f"模型训练完成，训练集准确率: {train_acc:.4f}，测试集准确率: {test_acc:.4f}")
-# 提取规则
-dt_rules = tree_miner.extract_rules()
-print(f"从决策树中提取到 {len(dt_rules)} 条规则")
-# 规则清单及全面评估
-tree_miner.evaluate_rules()
-```
-
-## 三、规则智能评估模块介绍
-
-对于规则系统，我们很难监控规则的是否还有成效（因为被规则拒掉的客户是不会有后续表现，不知道拦截得准不准）。一套规则拒绝率可能有70%，通常除了监控拒绝率的稳定性，我们不知道规则拦截效果怎么样。传统的解决方案是分流一部分客户不被规则拦截，然后再反过来看下本应该这个规则拦截客户是好是坏。但这种办法比较费钱，本该拒绝的用户放进来容易增加违约风险。
-
-rulelift旨在解决上述挑战，为信用风险管理团队提供一个高效、全面的规则效度分析工具：
-
-- **实时高效监控**：无需分流测试，基于规则记录数据的实时规则效度分析
-- **全面评估**：综合考虑命中率、逾期率、召回率、精确率、lift值、F1分数等多个指标
-- **系统性视角**：评估规则之间的相关性和整体效果，减少人工干预，提高分析效率和准确性
-
-### 技术原理
-基本思路是，基于分析规则拦截用户评级分布与整体客户评级分布的差异，估算出规则的效度。当然也支持常规的拿客户现有的逾期情况去评估规则有效性，这种一般在规则开发空跑时期使用，这里我们就不赘述。
-
-在信用风控中，我们常用信用评分卡评级或者风险评级去衡量不同客户的风险。对于一个有效规则来说，它所拦截的客户的风险也应该比全量客户更高些，在评级分布上会存在明显差异。我们就可以根据评级对应的坏账率去推估规则拦截这些用户的好坏程度。如下示例：
-#### 原全量客户评级分布（规则拦截前）
-| 评级 | 客户占比 | 对应坏账率 |
-|------|----------|------------|
-| 1    | 10%      | 20.00%     |
-| 2    | 20%      | 15.00%     |
-| 3    | 30%      | 10.00%     |
-| 4    | 25%      | 5.00%      |
-| 5    | 15%      | 2.00%      |
-
-#### 规则拦截客户评级分布
-| 评级 | 客户占比 | 对应坏账率 |
-|------|----------|------------|
-| 1    |**35%**    | 20.00%     |
-| 2    | 30%      | 15.00%     |
-| 3    | 20%      | 10.00%     |
-| 4    | 10%      | 5.00%      |
-| 5    | **5%**       | 2.00%      |
-
-从上述数据可以看出，有效规则拦截的客户中，高风险评级（1-2级）的占比明显高于全量客户，而低风险评级（3-5级）的占比明显低于全量客户。这种分布差异是评估规则有效性的重要依据，以此我们可以计算出规则的lift值、精确率、召回率、F1分数等指标。
-
-我们以详细代码示例说明下用法，
-
-### 规则监控数据集
-首先，我们需要准备一个规则命中记录流水数据去分析评估规则效果，包含规则名称、用户编号、命中日期（可选）、用户评级（可选）、用户评级对应的坏账率（可选）、用户实际逾期（可选，如果有用户实际逾期表现，就可以不用借由用户评级去推估规则效果了）。
-
-#### 示例1：规则命中记录数据（关联用户评级）
-
-| RULE | USER_ID | HIT_DATE | USER_LEVEL | USER_LEVEL_BADRATE |
-|------|---------|----------|------------|--------------------|
-| 阿里欺诈分>=95 | ID20261120004467 | 2026/10/1 | 1 | 0.20 |
-| 百度欺诈分>=90 | ID20261120004467 | 2026/10/1 | 1 | 0.20 |
-| 百度欺诈分>=90 | ID20261119001974 | 2026/10/1 | 2 | 0.15 |
-| 授信通过 | ID20261116003965 | 2026/10/1 | 3 | 0.10 |
-
-**用户评级及对应坏账率定义**：用户评级是指对客户风险进行分类的指标，可以使用任意具有风险排序性的字段，如评分卡评级、分层或风险评级，甚至学历收入字段。对于每种评级，都有对应的当前客群历史坏账率。这个历史评级的坏账率会影响规则评估的精确率等指标，但如果你只在于评估规则的lift值这种相对的数值，那么这个历史坏账率大小就不是那么重要了。以下是一个示例评级对应关系：
-
-| 评级 | 评级名称 | 对应坏账率 | 风险描述 |
-|------|----------|------------|----------|
-| 1    | 高风险   | 20.00%     | 高逾期风险客户 |
-| 2    | 中高风险 | 15.00%     | 较高逾期风险客户 |
-| 3    | 中风险   | 10.00%     | 中等逾期风险客户 |
-| 4    | 中低风险 | 5.00%      | 较低逾期风险客户 |
-| 5    | 低风险   | 2.00%      | 低逾期风险客户 |
-
-#### 示例2：规则记录数据（关联实际逾期）
-
-| RULE | USER_ID | HIT_DATE | USER_TARGET |
-|------|---------|----------|-------------|
-| 阿里欺诈分>=95 | ID20261120002631 | 2026/10/1 | 1 |
-| 百度欺诈分>=90 | ID20261116003919 | 2026/10/1 | 0 |
-| 授信通过 | ID20261115001234 | 2026/10/1 | 1 |
-
-### 规则评估功能完整示例
-
-#### 示例1：使用预估指标评估规则（基于用户评级）
-
-当没有实际逾期数据时，可以使用用户评级和对应坏账率来评估规则效果：
-
-```python
-from rulelift import analyze_rules, load_example_data
-
-# 加载规则命中数据
-df = load_example_data('hit_rule_info.csv')
-
-# 分析规则效度（仅使用用户评级数据）
-result = analyze_rules(df, user_level_badrate_col='USER_LEVEL_BADRATE')
-
-# 查看分析结果
-print(result[['rule', 'estimated_badrate_pred', 'estimated_lift_pred']].head())
-```
-
-**运行结果**：
-```
-        rule  estimated_badrate_pred  estimated_lift_pred
-0  阿里欺诈分>=95                0.191988              1.185612
-1  百度欺诈分>=90                0.193519              1.195128
-2       授信通过                0.175126              1.080866
-```
-
-#### 示例2：使用实际指标评估规则（基于实际逾期数据）
-
-当有实际逾期数据时，可以直接使用实际指标评估规则效果：
-
-```python
-# 分析规则效度（仅使用实际逾期数据）
-result = analyze_rules(df, user_target_col='USER_TARGET')
-
-# 查看分析结果，按lift值排序
-result_sorted = result.sort_values(by='actual_lift', ascending=False)
-print(result_sorted[['rule', 'actual_badrate', 'actual_lift', 'f1']].head())
-```
-
-**运行结果**：
-```
-        rule  actual_badrate  actual_lift        f1
-0  阿里欺诈分>=95        0.150000     1.250000  0.260870
-1  百度欺诈分>=90        0.120000     1.000000  0.210526
-2       授信通过        0.080000     0.666667  0.145455
-```
-
-#### 示例3：结合命中率稳定性监控
-
-监控规则的命中率变化，评估规则的稳定性：
-
-```python
-# 分析规则效度（包含命中率计算）
-result_with_hitrate = analyze_rules(df, 
-                                  user_target_col='USER_TARGET',
-                                  hit_date_col='HIT_DATE')
-
-# 查看命中率相关指标
-hitrate_cols = ['rule', 'base_hit_rate', 'current_hit_rate', 'hit_rate_cv']
-print(result_with_hitrate[hitrate_cols].head())
-```
-
-**运行结果**：
-```
-        rule  base_hit_rate  current_hit_rate  hit_rate_cv
-0  阿里欺诈分>=95       0.331609         0.323529     0.420712
-1  百度欺诈分>=90       0.333333         0.347826     0.256944
-2       授信通过       0.334953         0.328638     0.086924
-```
-
-#### 示例4：规则相关性分析
-
-分析规则之间的相关性，发现冗余和冲突规则：
-
-```python
-from rulelift import analyze_rule_correlation
-
-# 计算规则相关性矩阵
-correlation_matrix, max_correlation = analyze_rule_correlation(df)
-
-# 查看相关性矩阵
-print("规则相关性矩阵：")
-print(correlation_matrix)
-
-# 查看每条规则的最大相关性
-print("\n每条规则的最大相关性：")
-for rule, corr in max_correlation.items():
-    print(f"  {rule}: {corr['max_correlation_value']:.4f}")
-```
-
-**运行结果**：
-```
-规则相关性矩阵：
-RULE           授信通过  百度欺诈分>=90  阿里欺诈分>=95
-RULE
-授信通过       1.000000  -0.398847  -0.887592
-百度欺诈分>=90 -0.398847   1.000000  -0.053852
-阿里欺诈分>=95 -0.887592  -0.053852   1.000000
-
-每条规则的最大相关性：
-  授信通过: -0.3988
-  百度欺诈分>=90: -0.0539
-  阿里欺诈分>=95: -0.0539
-```
-
-#### 示例5：规则增益分析
-
-**规则增益定义**：规则增益是指在现有策略基础上添加新规则后，策略整体效果的提升程度。它反映了新规则对策略的贡献价值，帮助我们识别高价值规则。
-
-```python
-from rulelift import calculate_strategy_gain
-
-# 实际存在的规则策略
-actual_rules = df['RULE'].unique()
-print("\n场景2: 单个规则作为策略")
-single_rule_strategies = {
-    rule: [rule] for rule in actual_rules[:3]  # 使用前3个规则作为单个策略
-}
-
-gain_matrix, gain_details = calculate_strategy_gain(
-    df, 
-    rule_col='RULE', 
-    user_id_col='USER_ID',
-    user_target_col='USER_TARGET',
-    strategy_definitions=single_rule_strategies
-)
-print(f"单个规则策略的增益矩阵:")
-print(gain_matrix)
-```
-
-**运行结果**：
-```
-场景2: 单个规则作为策略
-单个规则策略的增益矩阵:
-                授信通过  阿里欺诈分>=95  百度欺诈分>=90
-授信通过       0.000000   0.796356   0.859801
-阿里欺诈分>=95  1.255720   0.000000   1.076994
-百度欺诈分>=90  1.163059   0.910642   0.000000
-```
-### 本方法缺陷与优化
-
-本方法有几点缺陷，
-首先，对用户评级区分度高度依赖，假如一个AUC为0.9的评分模型那他对于规则下客户的评估就比较可靠，反之亦然。
-其次，评级是根据历史通过的数据训练来的，这样或多或少可能存在幸存者偏差的问题，导致预测样本不准。
-最后，算法倾向于赋予与评级相关性较高的规则更高的效度值，如果评级很可靠这倒没啥问题。
-
-**改进方法**：推估方法强依赖评级效果，因此评级效果越好，良好拟合实际标签，推估效果就越好。可以通过拒绝推断、大样本减少幸存者偏差，再者可以通过算法优化、加入多方面维度的特征提高评级的拟合及泛化性。
-
-## 四、规则自动挖掘模块介绍
-
-规则自动挖掘模块是 rulelift 的另一个核心功能，旨在解决手动制定规则耗时耗力、难以发现复杂关系的问题。该模块基于用户特征自动挖掘及优化规则，帮助风控团队快速生成高质量的规则集，提升规则系统的整体效果。规则自动挖掘模块提供以下核心功能：
-- 特征分析：对所有特征进行全面分析，包括效度指标、相关性分析和分箱分析
-- 单特征规则挖掘：支持传统方法、XGBoost方法、卡方检验方法，快速发现单个特征的有效阈值
-- 多特征交叉规则挖掘：支持多特征两两交叉，发现特征间的复杂交互关系
-- 树模型规则提取：支持决策树、随机森林、卡方决策树、XGBoost、孤立森林5种算法
-- 全面评估：支持使用badrate、损失率、lift、recall指标评估规则和特征的有效性
-- 可视化支持：提供丰富的可视化功能，包括特征重要性图、决策树结构图、规则评估图、交叉热力图等
-
-### 内置数据集示例介绍
-
-规则挖掘模块提供了内置的 `feas_target.csv` 数据集，用于演示功能：
-
-| 字段名 | 描述 | 类型 | 示例值 |
-|--------|------|------|--------|
-| ID | 用户唯一标识 | 字符串 | ID20260510020747 |
-| CREATE_TIME | 数据创建时间 | 日期 | 25-Apr |
-| ALI_FQZSCORE | 阿里欺诈分数 | 数值 | 700 |
-| BAIDU_FQZSCORE | 百度欺诈分数 | 数值 | 458 |
-| 人行近3个月申请借款次数 | 用户近3个月借款申请次数 | 数值 | 35 |
-| ISBAD | 目标变量（坏客户标记） | 0/1 | 1 |
-
-
-### 0. 特征分析（变量分析）示例
-- **技术机制**：对所有特征进行全面分析，包括效度指标、相关性分析和分箱分析
-- **核心指标**：IV值、KS值、相关性系数、变量分箱、损失率分布、PSI等
-- **可视化支持**：提供变量相关性热力图和分箱分析图
-- **适用场景**：规则挖掘前的特征筛选和理解，帮助选择最有效的特征
-
-```python
-from rulelift import VariableAnalyzer, load_example_data
-import matplotlib.pyplot as plt
-
-# 加载用户特征数据集
-feature_df = load_example_data('feas_target.csv')
-print(f"用户特征数据集形状: {feature_df.shape}")
-print(f"数据列名: {list(feature_df.columns)}")
-
-# 初始化变量分析器（不使用损失率指标）
-print("\n1. 初始化变量分析器（不使用损失率指标）:")
-variable_analyzer = VariableAnalyzer(feature_df, exclude_cols=['ID', 'CREATE_TIME','OVD_BAL','AMOUNT'], target_col='ISBAD')
-print(f"   分析特征数量: {len(variable_analyzer.features)}")
-
-# 分析所有变量的效度指标
-print("\n2. 所有变量效度指标分析:")
-var_metrics = variable_analyzer.analyze_all_variables()
-print(f"   变量分析结果:")
-print(var_metrics)
-
-# 初始化变量分析器（使用损失率指标）
-print("\n3. 初始化变量分析器（使用损失率指标）:")
-variable_analyzer_with_loss = VariableAnalyzer(
-    feature_df, 
-    exclude_cols=['ID', 'CREATE_TIME','OVD_BAL','AMOUNT'], 
+from rulelift import RuleMiningPipeline
+
+# 准备数据
+import pandas as pd
+df = pd.read_csv('your_data.csv')
+
+# 一键完成全流程分析
+pipeline = RuleMiningPipeline(
+    df=df,
     target_col='ISBAD',
-    amount_col='AMOUNT',
-    ovd_bal_col='OVD_BAL'
+    exclude_cols=['ID', 'CREATE_TIME'],
+    select_max_features=100,        # 限制特征数
+    enable_variable_analysis=True,   # 变量分析
+    enable_single_rules=True,        # 单特征规则
+    enable_cross_rules=True,         # 交叉特征规则
+    enable_tree_rules=True,          # 树模型规则
+    verbose=True
 )
-print(f"   分析特征数量: {len(variable_analyzer_with_loss.features)}")
 
-# 变量相关性分析
-print("\n4. 变量相关性分析:")
-corr_matrix = feature_df[var_metrics['variable']].corr()
-print(f"   变量相关性矩阵:")
-print(corr_matrix)
+results = pipeline.fit()
 
-# 可视化相关性矩阵
-plt.figure(figsize=(10, 8))
-sns.heatmap(corr_matrix, annot=True, fmt='.2f', cmap='coolwarm')
-plt.title('变量相关性矩阵')
-plt.savefig('images/variable_correlation.png', dpi=300, bbox_inches='tight')
-plt.close()
-print("   变量相关性矩阵图已保存到: images/variable_correlation.png")
+# 查看结果
+print(results.get_summary())  # 或直接访问 results.summary
 
-# 分析单个变量的分箱情况
-print("\n5. 单个变量分箱分析:")
-feature = 'ALI_FQZSCORE'  # 选择一个特征
-bin_analysis = variable_analyzer.analyze_single_variable(feature, n_bins=10)
-print(f"   {feature}特征的分箱分析结果:")
-print(bin_analysis)
-
-# 分析单个变量的分箱情况（包含损失率指标）
-print("\n6. 单个变量分箱分析（包含损失率指标）:")
-bin_analysis_with_loss = variable_analyzer_with_loss.analyze_single_variable(feature, n_bins=10)
-print(f"   {feature}特征的分箱分析结果（包含损失率）:")
-print(bin_analysis_with_loss.head())
-
-# 可视化变量分箱结果
-variable_analyzer.plot_variable_bins(feature, n_bins=10)
-plt.savefig('images/variable_bin_analysis.png', dpi=300, bbox_inches='tight')
-plt.close()
-print("   变量分箱分析图已保存到: images/variable_bin_analysis.png")
-
-# PSI计算示例
-print("\n7. PSI计算示例:")
-psi_value = variable_analyzer.calculate_psi(feature)
-print(f"   {feature}特征的PSI值: {psi_value:.4f}")
+# 获取所有规则
+all_rules = results.get_all_rules()
+all_rules.to_excel('rules_output.xlsx')
 ```
 
-**运行结果**：
-```
-用户特征数据集形状: (499, 6)
-数据列名: ['ID', 'CREATE_TIME', 'ALI_FQZSCORE', 'BAIDU_FQZSCORE', '人行近3个月申请借款次数', 'ISBAD']
+更多完整示例请参考 [`examples/`](examples/) 目录。
 
-1. 初始化变量分析器（不使用损失率指标）:
-   分析特征数量: 3
+---
 
-2. 所有变量效度指标分析:
-   变量分析结果:
-       variable    iv_value       ks  mean_diff  corr_with_target
-0  ALI_FQZSCORE    0.884846  0.652000   0.094000         -0.596000
-1  BAIDU_FQZSCORE    0.386249  0.384000   0.040000         -0.356000
-2  人行近3个月申请借款次数    0.737160  0.582000   0.084000          0.554000
+## 简化调用
 
-3. 初始化变量分析器（使用损失率指标）:
-   分析特征数量: 3
+核心类提供了简化别名方法，可以用更短的名称调用常用功能，零性能开销。
 
-4. 变量相关性分析:
-   变量相关性矩阵:
-                   ALI_FQZSCORE  BAIDU_FQZSCORE  人行近3个月申请借款次数
-ALI_FQZSCORE           1.000000        0.356000          -0.446000
-BAIDU_FQZSCORE         0.356000        1.000000          -0.252000
-人行近3个月申请借款次数      -0.446000       -0.252000           1.000000
-   变量相关性矩阵图已保存到: images/variable_correlation.png
+### 使用对比
 
+```python
+from rulelift import VariableAnalyzer, SingleFeatureRuleMiner, DecisionTreeRuleExtractor
 
-6. 单个变量分箱分析（包含损失率指标）:
-   ALI_FQZSCORE特征的分箱分析结果（包含损失率）:
-   bin_id        lower_bound       upper_bound  sample_count  bad_count  \
-0       0  515.0000000000000  535.0000000000000             1          1   
-1       1  535.0000000000000  555.0000000000000             0          0   
-2       2  555.0000000000000  575.0000000000000             0          0   
-3       3  575.0000000000000  595.0000000000000             2          2   
-4       4  595.0000000000000  615.0000000000000             3          3   
-5       5  615.0000000000000  635.0000000000000             6          6   
-6       6  635.0000000000000  655.0000000000000            10          9   
-7       7  655.0000000000000  675.0000000000000            15         12   
-8       8  675.0000000000000  695.0000000000000            20         15   
-9       9  695.0000000000000  715.0000000000000            24         18   
+# === 传统调用 ===
+result = analyzer.analyze_all_variables(oot_split_date='2026-02-01', date_col='repay_datetime')
+detail = analyzer.analyze_variables_detail(variables=['age', 'income'], visualize=True)
+selected = analyzer.select_features(iv_threshold=0.02)
+rules = miner.get_top_rules(feature=['age', 'income'], top_n=10)
+perf = extractor.get_model_performance()
 
-    badrate      lift  coverage  loss_rate  loss_lift
-0  1.000000  3.261438  0.002004   0.150000   3.261438
-1  0.000000  0.000000  0.000000   0.000000   0.000000
-2  0.000000  0.000000  0.000000   0.000000   0.000000
-3  1.000000  3.261438  0.004008   0.100000   2.174292
-4  1.000000  3.261438  0.006012   0.090000   1.961872
-5  1.000000  3.261438  0.012024   0.080000   1.740988
-6  0.900000  2.935294  0.020040   0.070000   1.523810
-7  0.800000  2.609150  0.030060   0.060000   1.309150
-8  0.750000  2.446078  0.040080   0.050000   1.089744
-9  0.750000  2.446078  0.048096   0.040000   0.871622
-
-   变量分箱分析图已保存到: images/variable_bin_analysis.png
-
+# === 简化调用（等价）===
+result = analyzer.vars(oot_split_date='2026-02-01', date_col='repay_datetime')
+detail = analyzer.vars_detail(variables=['age', 'income'], visualize=True)
+selected = analyzer.select(iv_threshold=0.02)
+rules = miner.rules(feature=['age', 'income'], top_n=10)
+perf = extractor.perf()
 ```
 
+### 完整别名列表
 
+| 类 | 简化名 | 原方法 | 说明 |
+|----|--------|--------|------|
+| **VariableAnalyzer** | `.vars()` | `.analyze_all_variables()` | 分析所有变量 |
+| | `.vars_detail()` | `.analyze_variables_detail()` | 详细变量分析 |
+| | `.vars_one()` | `.analyze_single_variable()` | 分析单个变量 |
+| | `.select()` | `.select_features()` | 特征筛选 |
+| | `.plot_bins()` | `.plot_variable_bins()` | 绘制分箱图 |
+| | `.quality()` | `.check_data_quality()` | 数据质量检查 |
+| | `.psi()` | `.calculate_psi()` | 计算PSI |
+| **SingleFeatureRuleMiner** | `.rules()` | `.get_top_rules()` | 获取单特征规则 |
+| **MultiFeatureRuleMiner** | `.rules()` | `.get_top_rules()` | 获取交叉规则 |
+| | `.rules_hist()` | `.get_top_rules_histogram()` | 直方图阈值搜索 |
+| | `.cross_matrix()` | `.generate_cross_matrix()` | 生成交叉矩阵 |
+| | `.cross_excel()` | `.generate_cross_matrices_excel()` | 交叉矩阵导出Excel |
+| | `.heatmap()` | `.plot_cross_heatmap()` | 交叉热力图 |
+| **DecisionTreeRuleExtractor** | `.rules_list()` | `.get_rules_as_dataframe()` | 获取规则DataFrame |
+| | `.top_rules()` | `.get_top_rules()` | 获取Top N规则 |
+| | `.importance()` | `.get_feature_importance()` | 特征重要性 |
+| | `.perf()` | `.get_model_performance()` | 模型性能 |
+| | `.generalize()` | `.analyze_rule_generalization()` | 规则泛化分析 |
+| **TreeRuleExtractor** | `.importance()` | `.get_feature_importance()` | 特征重要性 |
+| **RuleMiningResults** | `.all()` | `.get_all_rules()` | 获取所有规则 |
+| | `.top()` | `.get_top_rules()` | 获取Top N规则 |
 
+---
 
-### 示例1：单特征规则挖掘
+## 核心功能
 
-单特征规则挖掘适用于快速发现单个特征的有效阈值，支持传统方法、GBDT方法和卡方检验方法。
+### 1. 觘则智能评估
 
-##### 1.1 支持的方法
+无需 A/B 测试，基于规则命中用户的评级分布即可评估规则效果。
 
-| 方法 | 代码 | 特点 | 适用场景 |
+**支持指标**：
+- **预估指标**：坏账率、Lift值、召回率、精确率
+- **实际指标**：F1分数、实际坏账率、实际提升度
+- **稳定性指标**：命中率标准差、变异系数
+
+### 2. 规则自动挖掘
+
+支持多种挖掘算法，覆盖不同业务场景：
+
+| 算法 | 适用场景 | 特点 |
+|------|---------|------|
+| `SingleFeatureRuleMiner` | 快速发现强特征 | 单特征最优阈值挖掘，内存优化 |
+| `MultiFeatureRuleMiner` | 提升规则覆盖率 | 多特征交叉组合，numpy向量化 |
+| `TreeRuleExtractor('dt')` | 快速生成规则 | 决策树，简单直观 |
+| `TreeRuleExtractor('rf')` | 需要稳定规则 | 随机森林，多树集成 |
+| `TreeRuleExtractor('gbdt')` | 追求高精度 | 梯度提升树 |
+| `TreeRuleExtractor('chi2')` | 卡方分箱+随机森林 | 卡方自动分箱后构建随机森林 |
+| `TreeRuleExtractor('isf')` | 异常检测场景 | 孤立森林，通过异常分数发现风险规则 |
+
+### 3. 变量深度分析
+
+全方位评估变量价值：
+
+| 指标 | 说明 | 应用 | 判断标准 |
 |------|------|------|----------|
-| 传统方法 | `None` | 基于等频分箱的简单统计 | 快速发现特征阈值 |
-| 卡方检验方法 | `chi2` | 基于卡方检验的规则提取 | 特征选择更严格 |
+| IV (Information Value) | 变量预测能力 | 特征筛选 | >0.1强, 0.02-0.1中, <0.02弱 |
+| KS (Kolmogorov-Smirnov) | 变量区分能力 | 评估分箱效果 | >0.3强, 0.2-0.3中, <0.2弱 |
+| AUC | 预测准确性 | 模型评估 | >0.7较好 |
+| PSI (Population Stability) | 变量稳定性 | 监控特征漂移 | <0.1稳定, >0.25不稳定 |
 
-##### 1.2 核心功能
+### 4. 策略优化
 
-- **多种方法支持**：支持传统方法、GBDT方法、卡方检验方法
-- **损失率指标**：支持使用损失率指标评估规则的有效性
-- **多种评估指标**：支持lift、badrate、precision、recall、f1、loss_rate、loss_lift等多种指标
-- **表格形式展示**：规则评估结果以表格形式展示，便于分析和筛选
+计算规则组合的边际增益，找到最优策略组合。
 
-##### 1.3 传统方法示例
+---
 
-```python
-from rulelift import SingleFeatureRuleMiner, load_example_data
+## Pipeline 一体化分析
 
-# 加载用户特征数据集
-feature_df = load_example_data('feas_target.csv')
-print(f"用户特征数据集形状: {feature_df.shape}")
-print(f"数据列名: {list(feature_df.columns)}")
+`RuleMiningPipeline` 整合所有功能，一键完成全流程分析。
 
-# 初始化单特征规则挖掘器（不使用损失率指标）
-miner = SingleFeatureRuleMiner(feature_df, target_col='ISBAD', exclude_cols=['ID', 'CREATE_TIME', 'OVD_BAL', 'AMOUNT'])
-
-# 选择一个特征进行分析
-feature = 'ALI_FQZSCORE'
-print(f"\n分析特征: {feature}")
-
-# 计算单个特征的指标
-metrics_df = miner.calculate_single_feature_metrics(feature, num_bins=20)
-
-# 获取规则展示
-top_rules = miner.get_top_rules(feature, top_n=5, metric='lift')
-print(f"{feature}特征的top 5规则:")
-print(top_rules[['rule_description', 'lift', 'badrate', 'sample_ratio']])
-```
-
-**运行结果**：
-```
-用户特征数据集形状: (499, 6)
-数据列名: ['ID', 'CREATE_TIME', 'ALI_FQZSCORE', 'BAIDU_FQZSCORE', '人行近3个月申请借款次数', 'ISBAD']
-
-分析特征: ALI_FQZSCORE
-ALI_FQZSCORE特征的规则:
-           rule_description      lift   badrate  sample_ratio
-1  ALI_FQZSCORE <= 515.0000  3.261438  1.000000      0.002004
-3  ALI_FQZSCORE <= 635.0000  2.213119  0.678571      0.056112
-5  ALI_FQZSCORE <= 665.0000  2.174292  0.666667      0.102204
-7  ALI_FQZSCORE <= 688.5000  2.087320  0.640000      0.150301
-9  ALI_FQZSCORE <= 705.0000  1.993101  0.611111      0.216433
-```
-### 示例2：多特征交叉规则挖掘
-
-多特征交叉规则挖掘适用于发现特征间的交互作用，支持多特征两两交叉、多种指标分析和Excel导出。
-
-##### 2.1 核心功能
-
-- **多特征两两交叉**：支持传入多个特征，自动生成所有两两特征组合的交叉矩阵
-- **多种指标分析**：支持badrate、count、sample_ratio、lift、loss_rate、loss_lift等多种指标
-- **Excel导出**：支持将交叉矩阵导出为Excel文件，方便策略人员分析
-- **可视化支持**：通过热力图直观展示特征交叉关系
-
-##### 2.2 两特征交叉示例
+### 完整参数说明
 
 ```python
-from rulelift import MultiFeatureRuleMiner, load_example_data
+from rulelift import RuleMiningPipeline
 
-# 加载用户特征数据集
-feature_df = load_example_data('feas_target.csv')
+pipeline = RuleMiningPipeline(
+    df=data,
+    target_col='ISBAD',                # 目标变量
 
-# 初始化多特征规则挖掘器
-multi_miner = MultiFeatureRuleMiner(feature_df, target_col='ISBAD')
+    # === 数据配置 ===
+    exclude_cols=['ID', 'TIME'],       # 排除的列
+    amount_col='AMOUNT',                # 金额列（可选）
+    ovd_bal_col='OVD_BAL',             # 逾期余额列（可选）
+    date_col='CREATE_TIME',            # 日期列（用于OOT分割）
+    oot_split_date='2024-01-01',       # OOT分割日期
 
-# 绘制交叉热力图
-feature1 = 'ALI_FQZSCORE'
-feature2 = 'BAIDU_FQZSCORE'
-plt = multi_miner.plot_cross_heatmap(feature1, feature2, metric='lift')
-plt.savefig('cross_feature_heatmap.png', dpi=300, bbox_inches='tight')
-print("交叉特征热力图已保存到: cross_feature_heatmap.png")
-```
+    # === 特征选择参数 ===
+    select_iv_threshold=0.02,           # 最低有效IV阈值
+    select_max_features=100,           # 最大特征数限制
+    select_psi_threshold=None,         # PSI阈值（过滤不稳定特征，None=不过滤）
 
+    # === 变量分析参数 ===
+    variable_binning_method='chi2',    # 分箱方法: 'chi2' | 'quantile'
+    variable_n_bins=10,                # 默认分箱数量
+    variable_min_samples_pct=0.05,     # 最小分箱样本比例
+    variable_chi2_threshold=3.841,     # 卡方阈值
+    variable_n_jobs=-1,                # 并行任务数 (-1表示全部CPU)
 
-##### 2.3 多特征两两交叉示例
+    # === 单特征规则参数 ===
+    single_iv_threshold=0.1,           # 使用IV>0.1的特征
+    single_top_n=10,                   # 每特征返回规则数
+    single_min_lift=1.1,               # 最小lift值
+    single_min_samples=10,             # 最小样本数
+    single_algorithm='histogram',      # 算法: 'histogram' | 'chi2'
+    single_n_jobs=-1,                  # 并行任务数
 
-支持传入多个特征，自动生成所有两两特征组合的交叉矩阵，方便策略人员全面分析特征间的交互关系。
+    # === 交叉特征规则参数 ===
+    cross_iv_threshold=0.05,           # 使用0.05<=IV<0.1的特征
+    cross_top_features=3,              # 使用前N个特征
+    cross_top_n=5,                     # 每对特征返回规则数
+    cross_min_samples=10,              # 最小样本数
+    cross_min_lift=1.1,                # 最小lift值
+    cross_n_bins=8,                    # 分箱数量
+    cross_max_pairs=6,                 # 最多处理特征对数
 
-```python
-# 多特征两两交叉分析示例
-features_list = ['ALI_FQZSCORE', 'BAIDU_FQZSCORE', 'NUMBER OF LOAN APPLICATIONS TO PBOC']
-cross_matrices_multi = multi_miner.generate_cross_matrices_excel(
-    features_list=features_list,
-    output_path='cross_analysis_multi_features.xlsx',
-    metrics=['badrate', 'count', 'sample_ratio', 'lift'],  # 支持多种指标分析
-    binning_method='quantile'  # 支持等频分箱
-)
-print(f"多特征交叉矩阵Excel文件已保存到: cross_analysis_multi_features.xlsx")
-```
+    # === 树模型参数 ===
+    tree_algorithm='rf',               # 'dt', 'rf', 'gbdt', 'chi2', 'isf'
+    tree_max_depth=3,
+    tree_min_samples_leaf=5,           # 叶子最小样本数
+    tree_n_estimators=10,
+    tree_max_features='sqrt',          # 最大特征数
+    tree_top_n=20,                     # 返回规则数
 
-##### 2.4 智能分箱策略说明
+    # === 内存管理参数 ===
+    memory_mode='auto',                # 'auto', 'full', 'low'
+    min_free_memory_mb=500,            # 最小可用内存（MB）
+    enable_auto_cleanup=True,          # 自动清理内存
+    auto_skip_on_low_memory=False,     # True=直接跳过, False=降级到低内存模式
 
-多特征交叉规则挖掘支持多种智能分箱策略，以适应不同的业务场景和数据特征：
-
-| 分箱方法 | 代码 | 特点 | 适用场景 |
-|---------|------|------|----------|
-| 等频分箱 | `quantile` | 每个分箱包含大致相同的样本数 | 数据分布不均匀时，确保每个分箱有足够的样本 |
-| 卡方分箱 | `chi2` | 基于卡方检验合并相似分箱 | 需要更精细的分箱，保留风险区分度高的分箱 |
-| 自定义分箱 | 自定义阈值 | 使用业务经验指定的分箱阈值 | 有明确的业务规则或历史阈值 |
-
-**分箱策略选择建议**：
-- **等频分箱（quantile）**：适用于大多数场景，特别是当数据分布不均匀时，可以确保每个分箱都有足够的样本进行分析
-- **卡方分箱（chi2）**：适用于需要更精细分箱的场景，通过卡方检验合并相似的分箱，保留风险区分度高的分箱
-- **自定义分箱**：适用于有明确业务规则或历史阈值的场景，可以直接使用业务经验指定的分箱阈值
-
-**分箱参数说明**：
-- `max_unique_threshold`：最大允许的唯一值数量阈值，超过该阈值的特征将进行分箱处理，默认为5
-- `custom_bins`：自定义分箱阈值列表，例如 `[500, 600, 700]` 表示将特征分为4个区间
-- `binning_method`：分箱方法，支持 `'quantile'`（等频）和 `'chi2'`（卡方）
-
-##### 2.5 支持的指标说明
-
-多特征交叉分析支持多种指标，帮助策略人员全面评估特征组合的风险水平和业务价值：
-
-| 指标 | 定义 | 业务意义 |
-|------|------|----------|
-| `badrate` | 坏样本比例 = 坏样本数 / 总样本数 | 直接反映该特征组合下的风险水平 |
-| `count` | 样本数量 | 反映该特征组合的覆盖范围 |
-| `sample_ratio` | 样本占比 = 该组合样本数 / 总样本数 | 反映该特征组合的业务重要性 |
-| `lift` | 提升度 = 该组合badrate / 总样本badrate | 反映该特征组合的风险区分能力，值越大效果越好 |
-| `loss_rate` | 损失率 = 损失金额 / 总金额 | 反映该特征组合的实际损失程度（需要提供amount_col和ovd_bal_col） |
-| `loss_lift` | 损失提升度 = 该组合loss_rate / 总样本loss_rate | 反映该特征组合的损失区分能力（需要提供amount_col和ovd_bal_col） |
-
-##### 2.5 Excel文件内容示例
-
-生成的Excel文件包含多个sheet，每个sheet对应一个特征组合，例如：
-- `ALI_FQZSCORE_x_BAIDU_FQZSCORE`：两个特征的交叉矩阵
-- `ALI_FQZSCORE_x_NUMBER OF LOAN APPLICATIONS TO PBOC`：另一个特征组合
-- 每个sheet包含以下指标：badrate、count、sample_ratio、lift等
-- 策略人员可以根据交叉矩阵中的高lift区域制订规则
-
-**Excel文件内容示例**：（需要在初始化时提供amount_col和ovd_bal_col）
-| ALI_FQZSCORE | BAIDU_FQZSCORE | badrate | count | loss_rate | loss_lift |
-|--------------|----------------|---------|-------|-----------|-----------|
-| (500, 600]   | (300, 400]     | 0.6667  | 15    | 0.4567    | 2.89      |
-| (500, 600]   | (400, 500]     | 0.4000  | 25    | 0.3210    | 2.01      |
-| (600, 700]   | (300, 400]     | 0.5000  | 20    | 0.2890    | 1.81      |
-| (600, 700]   | (400, 500]     | 0.2000  | 30    | 0.1567    | 0.98      |
-
-##### 2.6 特征交叉矩阵分析方法完整说明
-
-**方法概述**：
-`generate_cross_matrix` 方法是特征交叉分析的核心方法，用于生成双特征交叉矩阵，包含badrate、样本占比等关键指标。
-
-**方法签名**：
-```python
-def generate_cross_matrix(self, feature1: str, feature2: str, 
-                     max_unique_threshold: int = 5,
-                     custom_bins1: List[float] = None,
-                     custom_bins2: List[float] = None,
-                     binning_method: str = 'quantile') -> pd.DataFrame
-```
-
-**参数说明**：
-- `feature1`：第一个特征名
-- `feature2`：第二个特征名
-- `max_unique_threshold`：最大允许的唯一值数量阈值，超过则进行分箱，默认为5
-- `custom_bins1`：第一个特征的自定义分箱阈值，默认为None（使用自动分箱）
-- `custom_bins2`：第二个特征的自定义分箱阈值，默认为None（使用自动分箱）
-- `binning_method`：分箱方法，支持 `'quantile'`（等频）或 `'chi2'`（卡方），默认为 `'quantile'`
-
-**返回值**：
-返回一个MultiIndex DataFrame，包含以下指标：
-- `badrate`：坏样本比例
-- `count`：样本数量
-- `bad_count`：坏样本数量
-- `good_count`：好样本数量
-- `sample_ratio`：样本占比
-- `lift`：提升度
-- `loss_rate`：损失率（需要提供amount_col和ovd_bal_col）
-- `loss_lift`：损失提升度（需要提供amount_col和ovd_bal_col）
-
-**使用示例**：
-```python
-from rulelift import MultiFeatureRuleMiner, load_example_data
-
-# 加载数据
-df = load_example_data('feas_target.csv')
-
-# 初始化多特征规则挖掘器
-multi_miner = MultiFeatureRuleMiner(df, target_col='ISBAD')
-
-# 生成交叉矩阵（使用等频分箱）
-cross_matrix = multi_miner.generate_cross_matrix(
-    feature1='ALI_FQZSCORE',
-    feature2='BAIDU_FQZSCORE',
-    max_unique_threshold=5,
-    binning_method='quantile'
+    # === 功能开关 ===
+    feature_trends='auto',             # 特征趋势约束: Dict / 'auto' / None
+    enable_variable_analysis=True,
+    enable_single_rules=True,
+    enable_cross_rules=True,
+    enable_tree_rules=True,
+    enable_validation=False,           # 启用规则验证
+    random_state=42,                   # 随机种子
+    verbose=True
 )
 
-# 生成交叉矩阵（使用卡方分箱）
-cross_matrix_chi2 = multi_miner.generate_cross_matrix(
-    feature1='ALI_FQZSCORE',
-    feature2='BAIDU_FQZSCORE',
-    max_unique_threshold=5,
-    binning_method='chi2'
-)
-
-# 生成交叉矩阵（使用自定义分箱）
-custom_bins1 = [500, 600, 700, 800]
-custom_bins2 = [300, 400, 500, 600]
-cross_matrix_custom = multi_miner.generate_cross_matrix(
-    feature1='ALI_FQZSCORE',
-    feature2='BAIDU_FQZSCORE',
-    max_unique_threshold=5,
-    custom_bins1=custom_bins1,
-    custom_bins2=custom_bins2
-)
+results = pipeline.fit()
 ```
 
-**分箱策略对比**：
-| 分箱方法 | 优点 | 缺点 | 适用场景 |
-|---------|------|------|----------|
-| 等频分箱（quantile） | 每个分箱样本数均匀，避免样本稀疏 | 可能忽略数据分布特征 | 数据分布不均匀时 |
-| 卡方分箱（chi2） | 保留风险区分度高的分箱，更精细 | 计算复杂度较高 | 需要精细分箱时 |
-| 自定义分箱 | 符合业务经验，解释性强 | 需要业务知识 | 有明确业务规则时 |
+### Pipeline 执行流程
 
-**交叉矩阵分析步骤**：
-1. **选择特征**：根据业务经验和数据分析，选择需要交叉分析的特征
-2. **选择分箱策略**：根据数据分布和业务需求，选择合适的分箱方法
-3. **生成交叉矩阵**：使用 `generate_cross_matrix` 方法生成交叉矩阵
-4. **分析高lift区域**：在交叉矩阵中找到lift值高的区域，这些区域对应高风险的特征组合
-5. **制定规则**：根据高lift区域制定规则，例如 "ALI_FQZSCORE <= 600 AND BAIDU_FQZSCORE <= 400"
-6. **验证规则**：使用 `get_cross_rules` 方法获取Top规则，并验证规则的有效性
+```
+Step 0: 数据验证
+  └─> 验证数据完整性和目标列存在性
 
+Step 1: 变量分析
+  └─> 计算所有变量的 IV/KS/AUC/PSI
 
-**可视化交叉矩阵**：
-```python
-# 绘制交叉热力图
-plt = multi_miner.plot_cross_heatmap(
-    feature1='ALI_FQZSCORE',
-    feature2='BAIDU_FQZSCORE',
-    metric='lift'
-)
-plt.savefig('cross_feature_heatmap.png', dpi=300, bbox_inches='tight')
+Step 2: 特征分组
+  └─> 按IV阈值分为: 高IV | 中IV | 低IV
+
+Step 3: 单特征规则挖掘
+  └─> 对高IV特征进行单特征阈值挖掘
+
+Step 4: 交叉特征规则挖掘
+  └─> 对中IV特征进行交叉组合挖掘
+
+Step 5: 树模型规则挖掘
+  └─> 使用决策树/随机森林提取规则
 ```
 
-**生成交叉矩阵Excel文件**：
-```python
-# 生成交叉矩阵Excel文件（包含多个指标）
-cross_matrices = multi_miner.generate_cross_matrices_excel(
-    features_list=['ALI_FQZSCORE', 'BAIDU_FQZSCORE', 'NUMBER OF LOAN APPLICATIONS TO PBOC'],
-    output_path='cross_analysis_multi_features.xlsx',
-    metrics=['badrate', 'count', 'sample_ratio', 'lift', 'loss_rate', 'loss_lift'],
-    binning_method='quantile'
-)
-```
+---
 
-**注意事项**：
-1. **样本数量**：确保每个分箱都有足够的样本，否则统计指标不可靠
-2.  **特征相关性**：高度相关的特征进行交叉分析可能产生冗余规则
+## API 完整参考
 
-### 示例3：基于树模型的规则提取
+---
 
-TreeRuleExtractor 提供了统一的树模型规则提取接口，支持多种算法和丰富的配置选项，适用于生成综合性的规则集。
+### 一、工具函数 (utils/)
 
-##### 3.1 支持的算法
+#### 1.1 load_example_data
 
-TreeRuleExtractor 支持以下5种算法：
-
-| 算法 | 代码 | 特点 | 适用场景 |
-|------|------|------|----------|
-| 决策树 | `dt` | 简单直观，易于解释 | 快速生成规则，适合初步探索 |
-| 随机森林 | `rf` | 多树集成，稳定性好 | 需要更稳定、多样性的规则效果 |
-| 卡方决策树 | `chi2` | 基于卡方检验分裂的随机森林 | 特征分箱更合理 |
-| GBDT | `gbdt` | 梯度提升，性能优秀 | 需要高精度的规则 |
-| 孤立森林 | `isf` | 异常检测，无监督 | 发现异常模式 |
-
-**实践上可以 优先使用随机森林、GBDT等集成学习方法，通过调整超参数 n_estimators更大 max_features更小使得有更多及更多样规则，max_depth更小、min_samples_split较大，使得规则更简单更有解释性及统计可信度。传入业务字段（feature_trends）挖掘符合业务解释性规则。基于以上设置可以挖掘出符合业务逻辑的大量可靠规则以供选择**
-
-##### 3.2 核心功能
-
-- **多种算法支持**：支持决策树、随机森林、卡方决策树、GBDT、孤立森林5种算法
-- **超参数控制**：支持传入超参数控制树、规则复杂度，如max_depth、min_samples_split、min_samples_leaf、n_estimators等
-- **业务解释性配置**：支持传入业务字段（feature_trends）挖掘符合业务解释性规则，过滤不符合业务逻辑的规则
-- **多种指标评估**：支持多种指标（如lift、badrate、precision、recall、f1、loss_rate、loss_lift）评估挖掘规则的有效性
-- **表格形式展示**：规则评估结果以表格形式展示，便于分析和筛选
-- **可视化支持**：提供特征重要性图、决策树结构图、规则评估图等可视化功能
-
-##### 3.3 基本使用示例
+加载内置示例数据文件。
 
 ```python
-from rulelift import TreeRuleExtractor, load_example_data
+from rulelift.utils import load_example_data
 
-# 加载用户特征数据集
-feature_df = load_example_data('feas_target.csv')
-
-# 初始化TreeRuleExtractor（决策树算法，不使用损失率指标）
-tree_miner = TreeRuleExtractor(
-    feature_df, 
-    target_col='ISBAD', 
-    exclude_cols=['ID', 'CREATE_TIME', 'OVD_BAL', 'AMOUNT'],
-    algorithm='dt',  # 使用决策树算法
-    max_depth=3,  # 树复杂度配置：决策树最大深度
-    min_samples_split=20,  # 规则精度配置：分裂节点所需的最小样本数
-    min_samples_leaf=10,  # 规则精度配置：叶子节点的最小样本数
-    test_size=0.3,  # 测试集比例
-    random_state=42  # 随机种子
-)
-
-# 训练模型
-train_acc, test_acc = tree_miner.train()
-print(f"训练集准确率: {train_acc:.4f}")
-print(f"测试集准确率: {test_acc:.4f}")
-
-# 提取规则
-dt_rules = tree_miner.extract_rules()
-print(f"提取的规则数量: {len(dt_rules)}")
-
-# 规则评估
-eval_results = tree_miner.evaluate_rules()
-print(f"规则评估结果（前5条）:")
-print(eval_results[['rule', 'test_hit_count', 'test_bad_count', 'test_badrate', 'test_hit_rate', 'test_baseline_badrate', 'test_badrate_after_interception', 'test_badrate_reduction', 'badrate_diff', 'test_precision', 'test_recall', 'test_f1', 'test_lift']].head())
+df_hit = load_example_data('hit_rule_info')  # 规则命中数据 (998行)
+df_feas = load_example_data('feas_target')    # 可行性目标数据 (499行)
 ```
 
-**运行结果**：
-```
-训练集准确率: 0.8223
-测试集准确率: 0.7600
-提取的规则数量: 7
-规则评估结果（前5条）:
-rule  test_hit_count  test_bad_count  test_badrate  test_precision  test_recall   test_f1  test_lift       
-5  NUMBER OF LOAN APPLICATIONS TO PBOC > 9.5000 A...              12              11      0.916667        0.916667     0.244444  0.385965   3.055556       
-1  NUMBER OF LOAN APPLICATIONS TO PBOC <= 9.5000 ...               9               6      0.666667        0.666667     0.133333  0.222222   2.222222       
-4  NUMBER OF LOAN APPLICATIONS TO PBOC > 9.5000 A...              11               6      0.545455        0.545455     0.133333  0.214286   1.818182       
-2  NUMBER OF LOAN APPLICATIONS TO PBOC <= 9.5000 ...              62              15      0.241935        0.241935     0.333333  0.280374   0.806452       
-6  NUMBER OF LOAN APPLICATIONS TO PBOC > 9.5000 A...               9               2      0.222222        0.222222     0.044444  0.074074   0.740741       
-```
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `data_name` | str | `'hit_rule_info'` | 数据名称：`'hit_rule_info'` 或 `'feas_target'` |
+| `file_path` | str | None | 自定义数据文件路径 |
 
-##### 3.4 使用损失率指标评估
+**返回**: `pd.DataFrame`
 
-支持使用损失率指标评估规则的有效性，需要提供amount_col（金额字段）和ovd_bal_col（逾期金额字段）。
+---
+
+#### 1.2 preprocess_data
+
+预处理数据，将百分比字符串转为浮点数。
 
 ```python
-# 初始化TreeRuleExtractor（使用损失率指标）
-tree_miner_with_loss = TreeRuleExtractor(
-    feature_df, 
-    target_col='ISBAD', 
-    exclude_cols=['ID', 'CREATE_TIME', 'OVD_BAL', 'AMOUNT'],
-    algorithm='dt',
-    max_depth=3, 
-    min_samples_split=20,
-    min_samples_leaf=10,
-    test_size=0.3,
-    random_state=42,
-    amount_col='AMOUNT',  # 金额字段
-    ovd_bal_col='OVD_BAL'  # 逾期金额字段
-)
+from rulelift.utils import preprocess_data
 
-# 训练模型
-train_acc, test_acc = tree_miner_with_loss.train()
-print(f"训练集准确率: {train_acc:.4f}")
-print(f"测试集准确率: {test_acc:.4f}")
-
-# 提取规则
-dt_rules = tree_miner_with_loss.extract_rules()
-print(f"提取的规则数量: {len(dt_rules)}")
-
-# 规则评估（使用损失率指标）
-eval_results_with_loss = tree_miner_with_loss.evaluate_rules()
-print(f"规则评估结果（前5条，包含损失率指标）:")
-print(eval_results_with_loss[['rule', 'train_loss_rate', 'train_loss_lift', 'test_loss_rate', 'test_loss_lift', 'train_lift', 'test_lift']].head())
+df = preprocess_data(df, user_level_badrate_col='BADRATE')
 ```
 
-**运行结果**：
-```
-                                                rule  train_loss_rate  train_loss_lift  test_loss_rate  test_loss_lift  train_lift  test_lift
-5  NUMBER OF LOAN APPLICATIONS TO PBOC > 9.5000 A...         0.047619         2.632478        0.047619        2.632478    3.055556   3.055556
-1  NUMBER OF LOAN APPLICATIONS TO PBOC <= 9.5000 ...         0.025000         1.382979        0.025000        1.382979    2.222222   2.222222
-4  NUMBER OF LOAN APPLICATIONS TO PBOC > 9.5000 A...         0.020000         1.106383        0.020000        1.106383    1.818182   1.818182
-2  NUMBER OF LOAN APPLICATIONS TO PBOC <= 9.5000 ...         0.015000         0.829787        0.015000        0.829787    0.806452   0.806452
-6  NUMBER OF LOAN APPLICATIONS TO PBOC > 9.5000 A...         0.010000         0.553192        0.010000        0.553192    0.740741   0.740741
-```
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `df` | DataFrame | - | 原始数据 |
+| `user_level_badrate_col` | str | None | 用户评级坏账率字段名（含百分号字符串） |
 
-##### 3.5 使用业务解释性配置挖掘规则
+**返回**: `pd.DataFrame`
 
-支持传入业务字段（feature_trends）挖掘符合业务解释性规则，过滤不符合业务逻辑的规则。
+---
+
+#### 1.3 UnifiedBinningCalculator
+
+统一分箱计算器，支持多种分箱方法。
 
 ```python
-# 初始化TreeRuleExtractor（GBDT算法，使用特征趋势过滤）
-tree_miner_gbdt = TreeRuleExtractor(
-    feature_df, 
-    target_col='ISBAD', 
-    exclude_cols=['ID', 'CREATE_TIME', 'OVD_BAL', 'AMOUNT'],
-    algorithm='gbdt',  # 使用GBDT算法
-    max_depth=3,
-    min_samples_split=0.05,
-    min_samples_leaf=10,
-    n_estimators=10,
-    max_features='sqrt',
-    test_size=0.3,
-    feature_trends={  # 业务解释性配置：特征与目标标签的正负相关性
-        'ALI_FQZSCORE': -1,      # 负相关：分数越低，违约概率越高
-        'BAIDU_FQZSCORE': -1,    # 负相关：分数越低，违约概率越高
-        'NUMBER OF LOAN APPLICATIONS TO PBOC': 1  # 正相关：申请次数越多，违约概率越高
+from rulelift.utils import UnifiedBinningCalculator
+import numpy as np
+
+calc = UnifiedBinningCalculator(n_bins=10, default_method='chi2')
+
+# 计算分箱边界（传入 numpy 数组）
+bins = calc.compute_bins(df['feature'].values, df['target'].values, n_bins=10)
+
+# 计算分箱统计量（返回 tuple: (stats_df, iv, ks)）
+stats_df, iv, ks = calc.compute_bin_stats(df['feature'].values, df['target'].values, bins)
+
+# 应用分箱到数据
+binned = calc.apply_bins(df['feature'].values, bins)
+```
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `default_method` | str | `'quantile'` | 默认分箱方法：`'quantile'`/`'chi2'`/`'custom'`/`'equal_width'` |
+| `n_bins` | int | 10 | 默认分箱数量 |
+| `chi2_threshold` | float | 3.841 | 卡方阈值 |
+| `min_samples_pct` | float | 0.02 | 最小样本比例 |
+| `decimal_places` | int | 3 | 小数位数 |
+| `missing_values` | list | None | 缺失值列表 |
+| `special_values` | list | None | 特殊值列表 |
+| `max_iterations` | int | 500 | 卡方分箱最大迭代次数 |
+| `categorical_nunique_threshold` | int | 10 | 类别变量唯一值阈值 |
+| `empty_separate` | bool | True | 空值单独分箱 |
+| `robust_mode` | bool | True | 鲁棒模式 |
+
+**主要方法**:
+
+| 方法 | 说明 | 返回 |
+|------|------|------|
+| `compute_bins(feature_values, target_values, n_bins)` | 计算分箱边界 | `np.ndarray` |
+| `compute_bin_stats(feature_values, target_values, bin_edges)` | 计算分箱统计量 | `(DataFrame, iv, ks)` |
+| `apply_bins(feature_values, bin_edges)` | 应用分箱 | `np.ndarray` |
+
+---
+
+#### 1.4 CategoricalVariableProcessor
+
+类别变量处理器，自动检测和处理类别型特征。
+
+```python
+from rulelift.utils.categorical import CategoricalVariableProcessor
+
+proc = CategoricalVariableProcessor()
+info = proc.detect_and_prepare(df, 'app_type', 'label')
+# info: {'feature': 'app_type', 'method': '...', 'detection': {...}, 'bin_mapping': {...}}
+```
+
+| 方法 | 说明 | 返回 |
+|------|------|------|
+| `detect_and_prepare(df, feature, target_col)` | 检测类别变量并准备分箱 | `Dict` |
+
+---
+
+#### 1.5 ParallelExecutor
+
+并行执行器，支持 joblib 多种后端。
+
+```python
+from rulelift.utils import ParallelExecutor
+
+executor = ParallelExecutor(n_jobs=-1, backend='loky')
+results = executor.map(func, items_list)
+```
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `n_jobs` | int | -1 | 并行数（-1=全部核心） |
+| `backend` | str | `'loky'` | 后端：`'loky'`/`'multiprocessing'`/`'threading'` |
+| `timeout` | float | 300 | 超时时间（秒） |
+| `parallel_threshold` | int | 20 | 最小并行任务数 |
+
+---
+
+#### 1.6 类别检测函数
+
+```python
+from rulelift.utils import (
+    is_categorical, smart_detect_categorical,
+    should_bin_categorical, detect_categorical_type,
+    batch_detect_categorical
+)
+
+# 基础判断
+is_categorical(df['app_type'])           # True/False
+smart_detect_categorical(df['app_type']) # 智能判断（含可转换检测）
+
+# 是否需要分箱
+needs, reason = should_bin_categorical(df['app_type'])
+
+# 完整检测
+info = detect_categorical_type(df['app_type'])
+# {'is_categorical': True, 'needs_binning': True, 'nunique': 11, 'unique_ratio': 0.0015}
+
+# 批量检测
+results = batch_detect_categorical(df, columns=['col1', 'col2'])
+```
+
+---
+
+### 二、指标计算 (metrics/)
+
+#### 2.1 compute_feature_trends
+
+自动推断特征趋势方向（基于相关系数）。
+
+```python
+from rulelift.metrics import compute_feature_trends
+
+trends = compute_feature_trends(df, ['age', 'income'], target_col='label')
+# {'age': 1, 'income': -1}
+# 1 = 正相关（建议保留 >= 规则），-1 = 负相关（建议保留 <= 规则）
+```
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `df` | DataFrame | 数据集 |
+| `features` | List[str] | 特征列表 |
+| `target_col` | str | 目标列名 |
+
+**返回**: `Dict[str, int]` — {特征名: 1 或 -1}
+
+---
+
+#### 2.2 add_cumulative_metrics
+
+为规则结果增加累计指标。
+
+```python
+from rulelift.metrics import add_cumulative_metrics
+
+rules_df = add_cumulative_metrics(rules_df, sort_by='threshold', ascending=True)
+# 新增列：cum_total_pct, cum_bad_rate, cum_bad_rate_remaining
+```
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `df` | DataFrame | - | 需含 `selected_samples`、`selected_bad` 列 |
+| `sort_by` | str | `'threshold'` | 排序依据 |
+| `ascending` | bool | True | 升序（从低到高逐级收紧） |
+
+**返回**: `pd.DataFrame` — 增加了 `cum_total_pct`、`cum_bad_rate`、`cum_bad_rate_remaining` 列
+
+---
+
+#### 2.3 calculate_psi
+
+计算 Population Stability Index。
+
+```python
+from rulelift.metrics import calculate_psi
+
+psi = calculate_psi(train_data, oot_data, buckets=10)
+```
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `expected` | Series | - | 预期分布（训练集） |
+| `actual` | Series | - | 实际分布（OOT集） |
+| `buckets` | int | 10 | 分箱数量 |
+
+**返回**: `float` — PSI值（<0.1 稳定，0.1-0.25 中等，>0.25 不稳定）
+
+---
+
+#### 2.4 calculate_rule_correlation
+
+计算规则间相关性矩阵。
+
+```python
+from rulelift.metrics import calculate_rule_correlation
+
+corr_matrix = calculate_rule_correlation(user_rule_df)
+```
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `user_rule_df` | DataFrame | 用户-规则矩阵（0/1） |
+
+**返回**: `pd.DataFrame` — 相关系数矩阵
+
+---
+
+#### 2.5 calculate_estimated_metrics / calculate_actual_metrics
+
+基于用户评级分布计算规则预估指标和实际指标。
+
+```python
+from rulelift.metrics import calculate_estimated_metrics, calculate_actual_metrics
+
+# 预估指标（基于 USER_LEVEL_BADRATE）
+est = calculate_estimated_metrics(rule_score, user_rule_df, 'USER_ID', 'BADRATE')
+
+# 实际指标（基于 ISBAD）
+act = calculate_actual_metrics(rule_score, user_rule_df, 'USER_ID', 'ISBAD')
+```
+
+**返回**: `Dict[str, Dict]` — {规则名: {指标名: 值}}
+
+---
+
+#### 2.6 calculate_strategy_pair_gain
+
+计算两两策略间的边际增益。
+
+```python
+from rulelift.metrics import calculate_strategy_pair_gain
+
+gain = calculate_strategy_pair_gain(user_rule_df, user_target, ['R1'], ['R2'])
+# {'gain_users': 50, 'gain_bads': 10, 'gain_badrate': 0.20, 'gain_lift': 1.5, ...}
+```
+
+---
+
+#### 2.7 稳定性指标
+
+```python
+from rulelift.metrics import calculate_rule_psi, calculate_rule_stability, calculate_long_term_stability
+
+# 规则在不同时期的PSI
+psi_df = calculate_rule_psi(rule_score, 'RULE', 'HIT_DATE', 'USER_ID')
+
+# 规则月度稳定性
+stability = calculate_rule_stability(rule_score, 'RULE', 'HIT_DATE', 'USER_ID')
+# {'R1': {'hit_rate_std': 0.02, 'hit_rate_cv': 0.1, 'months_analyzed': 6}}
+
+# 规则长期稳定性（滚动窗口）
+long_term = calculate_long_term_stability(rule_score, 'RULE', 'HIT_DATE', 'USER_ID', window_size=30)
+```
+
+---
+
+### 三、变量分析 (analysis/VariableAnalyzer)
+
+#### 3.1 VariableAnalyzer 构造器
+
+```python
+from rulelift.analysis import VariableAnalyzer
+
+analyzer = VariableAnalyzer(
+    df,
+    target_col='label',
+    exclude_cols=['user_id', 'date_col'],
+    n_bins=10,
+    binning_method='chi2',          # 'chi2' | 'quantile'
+    min_samples_pct=0.02,           # 最小分箱样本比例
+    n_jobs=-1,                       # 并行数（-1=全部核心）
+    enable_adaptive_parallel=True,   # 自适应并行（内存感知）
+    min_batch_size=10,               # 最小批次大小
+    max_memory_usage_ratio=0.7,      # 最大内存使用比例
+    log_level='INFO'                # 日志级别
+)
+```
+
+**数据配置**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `df` | DataFrame | - | 输入数据集 |
+| `target_col` | str | `'ISBAD'` | 目标列名 |
+| `exclude_cols` | list | None | 排除的列 |
+| `amount_col` | str | None | 金额列（可选） |
+| `ovd_bal_col` | str | None | 逾期余额列（可选） |
+
+**分箱配置**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `n_bins` | int | 10 | 默认分箱数量 |
+| `binning_method` | str | `'chi2'` | 分箱方法：`'chi2'`/`'quantile'` |
+| `chi2_threshold` | float | 3.841 | 卡方分箱合并阈值 |
+| `min_samples_pct` | float | 0.02 | 最小分箱样本比例 |
+| `iv_calculation_method` | str | `'standard'` | IV计算方法 |
+| `epsilon` | float | 1e-10 | 数值稳定小量 |
+
+**类别变量配置**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `categorical_cols` | list | None | 手动指定类别列 |
+| `auto_detect_categorical` | bool | True | 自动检测类别变量 |
+| `max_categorical_bins` | int | 10 | 类别变量最大分箱数 |
+| `categorical_nunique_threshold` | int | 10 | 唯一值数量阈值 |
+| `categorical_unique_ratio_threshold` | float | 0.5 | 唯一值比例阈值 |
+
+**缺失值配置**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `handle_missing` | bool | True | 是否处理缺失值 |
+| `missing_value` | float | -9999 | 缺失值标识 |
+| `missing_strategy` | str | `'single'` | 缺失值处理策略 |
+| `missing_fill_value` | float | None | 缺失值填充值 |
+
+**并行与性能配置**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `n_jobs` | int | -1 | 并行进程数（-1=全部核心） |
+| `enable_adaptive_parallel` | bool | True | 自适应并行（内存感知） |
+| `memory_threshold_mb` | float | 500 | 内存阈值（MB） |
+| `min_batch_size` | int | 10 | 最小批次大小 |
+| `max_memory_usage_ratio` | float | 0.7 | 内存使用上限 |
+| `gc_interval` | int | 5 | GC间隔 |
+| `log_level` | str | `'INFO'` | 日志级别 |
+
+---
+
+#### 3.2 analyze_all_variables
+
+> 简化别名：`.vars()`
+
+批量分析所有变量，计算 IV/KS/AUC/PSI 等指标。
+
+```python
+# 带OOT分割
+result = analyzer.analyze_all_variables(
+    oot_split_date='2026-02-01',
+    date_col='repay_datetime',
+    batch_size=50,
+    show_progress=True
+)
+
+# 不带OOT分割
+result = analyzer.analyze_all_variables()
+```
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `oot_split_date` | str | None | OOT分割日期（如 `'2024-01-01'`） |
+| `date_col` | str | None | 日期列名 |
+| `batch_size` | int | 50 | 批处理大小 |
+| `show_progress` | bool | True | 是否显示进度条 |
+
+**返回**: `pd.DataFrame` — 每行一个特征，包含 `variable`, `iv`, `ks`, `auc`, `gini`, `psi` 等列
+
+---
+
+#### 3.3 analyze_single_variable
+
+> 简化别名：`.vars_one()`
+
+分析单个变量的分箱统计。
+
+```python
+stats = analyzer.analyze_single_variable('age', n_bins=10)
+```
+
+**返回**: `pd.DataFrame` — 分箱统计结果
+
+---
+
+#### 3.4 analyze_variables_detail
+
+> 简化别名：`.vars_detail()`
+
+详细分析变量的分箱明细，支持自定义分箱和可视化。
+
+```python
+detail = analyzer.analyze_variables_detail(
+    variables=['age', 'income'],
+    n_bins=10,
+    visualize=True,
+    custom_bins_params={
+        'age': [18, 25, 35, 45, 55, 65],
+        'city': [['北京', '上海'], ['深圳', '广州'], ['其他']]
     },
+    oot_split_date='2026-02-01',
+    date_col='repay_datetime',
+)
+```
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `variables` | list | None | 变量列表（None=全部） |
+| `n_bins` | int | 10 | 分箱数量 |
+| `visualize` | bool | True | 是否可视化 |
+| `custom_bins_params` | dict | None | 自定义分箱参数 |
+| `oot_split_date` | str | None | OOT分割日期 |
+| `date_col` | str | None | 日期列名 |
+| `binning_method` | str | `'chi2'` | 分箱方法 |
+
+---
+
+#### 3.5 select_features
+
+> 简化别名：`.select()`
+
+基于多维指标筛选特征。
+
+```python
+result = analyzer.select_features(
+    iv_threshold=0.02,
+    psi_threshold=0.25,
+    ks_threshold=0.02,
+)
+# result: {
+#     'selected_features': ['feature1', 'feature2', ...],
+#     'selected_df': DataFrame,
+#     'rejected_features': {'feature3': ['IV<0.02', 'KS<0.02'], ...},
+#     'correlation_removed': {'feature4': '与 feature1 相关性过高'},
+#     'summary': {'total_features': 100, 'selected_count': 20, ...}
+# }
+```
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `analysis_result` | DataFrame | None | 自定义分析结果（None=使用缓存） |
+| `iv_threshold` | float | 0.02 | IV最小阈值 |
+| `missing_rate_threshold` | float | 0.8 | 最大缺失率阈值 |
+| `single_value_rate_threshold` | float | 0.95 | 最大单值率阈值 |
+| `psi_threshold` | float | 0.25 | PSI最大阈值（过滤不稳定特征） |
+| `ks_threshold` | float | 0.02 | KS最小阈值 |
+| `correlation_threshold` | float | 0.85 | 相关性最大阈值 |
+| `apply_correlation_filter` | bool | True | 是否应用相关性过滤 |
+| `mode` | str | `'and'` | 过滤模式：`'and'`（全部满足）/ `'or'`（任一满足） |
+
+**返回**: `Dict` — 包含 `selected_features`, `selected_df`, `rejected_features`, `correlation_removed`, `summary`
+
+---
+
+#### 3.6 calculate_psi
+
+计算单个特征的 PSI 值。
+
+```python
+psi = analyzer.calculate_psi(
+    feature='age',
+    oot_split_date='2026-02-01',
+    date_col='repay_datetime'
+)
+```
+
+**返回**: `float` — PSI值
+
+---
+
+#### 3.7 plot_variable_bins
+
+> 简化别名：`.plot_bins()`
+
+绘制变量分箱可视化图。
+
+```python
+fig = analyzer.plot_variable_bins('age', n_bins=10, save_path='age_bins.png')
+```
+
+---
+
+#### 3.8 check_data_quality
+
+数据质量检查，识别空列、高缺失列、常量列。
+
+```python
+report = analyzer.check_data_quality(
+    check_missing=True,
+    check_constant=True,
+    missing_threshold=0.95,
+)
+```
+
+---
+
+### 四、规则分析 (analysis/)
+
+#### 4.1 evaluate_rule_description
+
+通过规则描述直接评估规则效果（无需预计算命中矩阵）。
+
+```python
+from rulelift.analysis import evaluate_rule_description
+
+results = evaluate_rule_description(
+    [
+        {'age': [60, None]},            # age >= 60
+        {'income': [None, 5000]},      # income <= 5000
+        {'city': ['北京', '上海']},      # city in ['北京', '上海']
+        {'age': [30, 50], 'city': '北京'}, # 多条件 AND
+    ],
+    df=df,
+    target_col='label'
+)
+# 返回 DataFrame: rule_description, badrate, lift, recall, precision, f1,
+#                 cum_total_pct, cum_bad_rate, cum_bad_rate_remaining
+```
+
+**支持的规则格式**:
+
+| 格式 | 示例 | 含义 |
+|------|------|------|
+| 数值 >= | `{'age': [60, None]}` | age >= 60 |
+| 数值 <= | `{'age': [None, 80]}` | age <= 80 |
+| 数值范围 | `{'age': [60, 80]}` | 60 <= age <= 80 |
+| 类别匹配 | `{'city': '北京'}` | city == '北京' |
+| 类别列表 | `{'city': ['北京', '上海']}` | city in [...] |
+| 多条件 AND | `{'age': [60, None], 'city': '北京'}` | 同时满足 |
+
+---
+
+#### 4.2 analyze_rules
+
+基于规则命中数据评估规则效果。
+
+```python
+from rulelift.analysis import analyze_rules
+
+result = analyze_rules(
+    rule_score_df,
+    rule_col='RULE',
+    user_id_col='USER_ID',
+    user_target_col='ISBAD',
+    user_level_badrate_col='BADRATE',
+    hit_date_col='HIT_DATE',
+    include_stability=True
+)
+```
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `rule_col` | str | `'RULE'` | 规则名字段 |
+| `user_id_col` | str | `'USER_ID'` | 用户ID字段 |
+| `user_level_badrate_col` | str | None | 预估坏账率字段 |
+| `user_target_col` | str | None | 实际目标字段 |
+| `hit_date_col` | str | None | 命中日期字段 |
+| `include_stability` | bool | True | 是否计算稳定性指标 |
+
+---
+
+#### 4.3 analyze_rule_correlation
+
+分析规则间相关性。
+
+```python
+from rulelift.analysis import analyze_rule_correlation
+
+corr_matrix, max_corr = analyze_rule_correlation(
+    rule_score_df, 'RULE', 'USER_ID'
+)
+```
+
+**返回**: `(DataFrame, Dict)` — (相关系数矩阵, 每条规则最大相关性)
+
+---
+
+#### 4.4 get_user_rule_matrix
+
+构建用户-规则命中矩阵。
+
+```python
+from rulelift.analysis import get_user_rule_matrix
+
+matrix = get_user_rule_matrix(rule_score_df, 'RULE', 'USER_ID')
+```
+
+---
+
+#### 4.5 calculate_strategy_gain
+
+计算策略组合的边际增益。
+
+```python
+from rulelift.analysis import calculate_strategy_gain
+
+gain_matrix, details = calculate_strategy_gain(
+    rule_score_df, 'RULE', 'USER_ID', 'ISBAD',
+    strategy_definitions={
+        'Strategy1': ['R1', 'R2'],
+        'Strategy2': ['R3', 'R4'],
+    },
+    metric='gain_lift'
+)
+```
+
+| 参数 | 说明 |
+|------|------|
+| `metric` | `'gain_lift'`/`'gain_badrate'`/`'gain_users'`/`'gain_bads'`/`'gain_coverage'`/`'gain_recall'` |
+
+---
+
+### 五、规则挖掘 (mining/)
+
+> **已废弃**: `XGBoostRuleMiner` 已标记为废弃（deprecated），请使用 `TreeRuleExtractor(algorithm='gbdt')` 替代。TreeRuleExtractor 的 `'xgb'` 算法标识也已废弃，会自动转为 `'gbdt'`。
+
+#### 5.1 SingleFeatureRuleMiner
+
+单特征规则挖掘器，通过阈值搜索找到最优规则。
+
+```python
+from rulelift.mining import SingleFeatureRuleMiner
+
+miner = SingleFeatureRuleMiner(
+    df,
+    target_col='label',
+    exclude_cols=['user_id'],
+    min_lift=1.1,
+    algorithm='histogram',     # 'histogram' | 'chi2'
+    n_jobs=-1,
+    feature_trends='auto',     # Dict / 'auto' / None
+)
+
+# 挖掘指定特征
+rules = miner.get_top_rules(
+    feature=['age', 'income'],
+    top_n=10,
+    min_samples=10,
+    use_parallel=True,
+    show_progress=True,
+    group_by_feature=True     # 每特征取top_n
+)
+
+# 挖掘全部特征
+rules = miner.get_top_rules(
+    feature=None,
+    top_n=5,
+    metric='lift',            # 'lift' | 'badrate'
+    group_by_feature=True
+)
+```
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `df` | DataFrame | - | 数据集 |
+| `target_col` | str | `'ISBAD'` | 目标列 |
+| `exclude_cols` | list | None | 排除列 |
+| `amount_col` | str | None | 金额列（可选） |
+| `ovd_bal_col` | str | None | 逾期余额列（可选） |
+| `algorithm` | str | `'histogram'` | 算法：`'histogram'`/`'chi2'` |
+| `min_lift` | float | 1.1 | 最小Lift值 |
+| `histogram_bins` | int | 100 | 直方图分箱数 |
+| `chi2_threshold` | float | 3.841 | 卡方阈值 |
+| `n_jobs` | int | -1 | 并行数 |
+| `feature_trends` | dict/str | None | 特征趋势约束 |
+
+**类别变量配置**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `categorical_nunique_threshold` | int | 10 | 类别唯一值阈值 |
+| `categorical_unique_ratio_threshold` | float | 0.5 | 唯一值比例阈值 |
+| `max_categorical_bins` | int | 10 | 类别最大分箱数 |
+| `custom_categorical_mappings` | dict | None | 自定义类别映射 |
+
+**缺失值配置**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `missing_threshold` | float | 0.95 | 缺失率阈值 |
+| `missing_strategy` | str | `'fill'` | 缺失值处理策略 |
+| `missing_fill_value` | float | -999 | 缺失值填充值 |
+
+**验证配置**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `test_size` | float | 0.2 | 测试集比例 |
+| `validation_mode` | str | `'split'` | 验证模式：`'split'`/`'oot'` |
+| `date_col` | str | None | 日期列（OOT模式） |
+| `oot_split_date` | str | None | OOT分割日期 |
+| `enable_validation` | bool | False | 是否启用验证 |
+
+**并行与性能配置**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `n_jobs` | int | -1 | 并行进程数（-1=全部核心） |
+| `parallel_backend` | str | `'loky'` | 并行后端：`'loky'`/`'multiprocessing'`/`'threading'` |
+| `enable_adaptive_parallel` | bool | True | 自适应并行（内存感知） |
+| `memory_threshold_mb` | float | 500 | 内存阈值（MB） |
+| `gc_interval` | int | 10 | GC间隔 |
+| `feature_trends` | dict/str | None | 特征趋势约束：Dict / `'auto'` / None |
+
+**返回**: `pd.DataFrame` — 包含 `feature`, `threshold`, `operator`, `lift`, `badrate`, `selected_samples` 等列
+
+---
+
+#### 5.2 MultiFeatureRuleMiner
+
+交叉特征规则挖掘器。
+
+```python
+from rulelift.mining import MultiFeatureRuleMiner
+
+miner = MultiFeatureRuleMiner(
+    df,
+    target_col='label',
+    enable_validation=False,
+    feature_trends='auto'
+)
+
+# 网格分箱法
+rules = miner.get_top_rules(
+    feature1='age', feature2='income',
+    top_n=10, min_samples=10, min_lift=1.1, n_bins=8
+)
+
+# 直方图阈值搜索法
+rules = miner.get_top_rules_histogram(
+    feature1='age', feature2='income',
+    top_n=10, min_samples=10, min_lift=1.1, n_thresholds=20
+)
+
+# 交叉矩阵
+cross_matrix = miner.generate_cross_matrix('age', 'income')
+
+# 热力图
+miner.plot_cross_heatmap('age', 'income', metric='lift', save_path='heatmap.png')
+```
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `df` | DataFrame | - | 数据集 |
+| `target_col` | str | `'ISBAD'` | 目标列 |
+| `categorical_nunique_threshold` | int | 10 | 类别唯一值阈值 |
+| `feature_trends` | dict/str | None | 特征趋势约束 |
+
+---
+
+#### 5.3 DecisionTreeRuleExtractor
+
+基于决策树的规则提取。
+
+```python
+from rulelift.mining import DecisionTreeRuleExtractor
+
+extractor = DecisionTreeRuleExtractor(
+    df,
+    target_col='label',
+    exclude_cols=['user_id', 'repay_datetime'],
+    max_depth=5,
+    min_samples_leaf=5,
     random_state=42
 )
 
-# 训练模型
-train_acc, test_acc = tree_miner_gbdt.train()
-print(f"训练集准确率: {train_acc:.4f}")
-print(f"测试集准确率: {test_acc:.4f}")
-
-# 提取规则
-gbdt_rules = tree_miner_gbdt.extract_rules()
-print(f"提取的规则数量: {len(gbdt_rules)}")
-
-# 规则评估
-eval_results = tree_miner_gbdt.evaluate_rules()
-print(f"规则评估结果（前5条）:")
-print(eval_results[['rule', 'test_hit_count', 'test_bad_count', 'test_badrate', 'test_hit_rate', 'test_baseline_badrate', 'test_badrate_after_interception', 'test_badrate_reduction', 'badrate_diff', 'test_precision', 'test_recall', 'test_f1', 'test_lift']].head())
+train_acc, test_acc = extractor.train()
+rules = extractor.extract_rules()
+evaluation = extractor.evaluate_rules(rules)
+importance = extractor.get_feature_importance()
+performance = extractor.get_model_performance()
 ```
 
-**运行结果**：
-```
-训练集准确率: 0.8166
-测试集准确率: 0.7867
-提取的规则数量: 31
-规则评估结果（前5条）:
-                                                 rule  test_hit_count  test_bad_count  test_badrate  test_precision  test_recall   test_f1  test_lift      
-28  ALI_FQZSCORE <= 692.5000 AND ALI_FQZSCORE <= 6...              10              10      1.000000        1.000000     0.222222  0.363636   3.333333      
-27  NUMBER OF LOAN APPLICATIONS TO PBOC > 9.5000 A...               7               7      1.000000        1.000000     0.155556  0.269231   3.333333      
-30  BAIDU_FQZSCORE <= 390.5000 AND BAIDU_FQZSCORE ...               4               4      1.000000        1.000000     0.088889  0.163265   3.333333      
-12  NUMBER OF LOAN APPLICATIONS TO PBOC > 10.5000 ...              17              16      0.941176        0.941176     0.355556  0.516129   3.137255      
-14  ALI_FQZSCORE <= 692.5000 AND NUMBER OF LOAN AP...              17              16      0.941176        0.941176     0.355556  0.516129   3.137255      
-```
-
-##### 3.6 常用字段说明
-
-超参数说明
 | 参数 | 类型 | 默认值 | 说明 |
-|------|------|----------|------|
-| `algorithm` | str | `'dt'` | 算法类型：'dt'、'rf'、'chi2'、'gbdt'、'isf' |
-| `max_depth` | int | `3` | 决策树最大深度，控制树的复杂度 |
-| `min_samples_split` | int | `10` | 分裂节点所需的最小样本数，控制规则精度 |
-| `min_samples_leaf` | int | `5` | 叶子节点的最小样本数，控制规则精度。但传入<1的小数如0.05则设置为训练集样本数5%，值越大避免叶子节点过于复杂 |
-| `n_estimators` | int | `10` | 随机森林/GBDT/孤立森林中树的数量 |
-| `max_features` | str | `'sqrt'` | 每棵树分裂时考虑的最大特征数：'sqrt'或'log2' |
-| `test_size` | float | `0.3` | 测试集比例 |
-| `random_state` | int | `42` | 随机种子，保证结果可复现 |
-| `feature_trends` | Dict[str, int] | `None` | 特征与目标标签的正负相关性字典，用于过滤不符合业务解释性的规则 |
-| `amount_col` | str | `None` | 金额字段名，用于计算损失率指标 |
-| `ovd_bal_col` | str | `None` | 逾期金额字段名，用于计算损失率指标 |
+|------|------|--------|------|
+| `df` | DataFrame | - | 数据集 |
+| `target_col` | str | `'ISBAD'` | 目标列 |
+| `exclude_cols` | list | None | 排除列 |
+| `max_depth` | int | 5 | 最大深度 |
+| `min_samples_leaf` | int | 5 | 叶子最小样本数 |
+| `min_samples_split` | int | 10 | 分裂最小样本数 |
+| `test_size` | float | 0.2 | 测试集比例 |
+| `random_state` | int | 42 | 随机种子 |
+| `validation_mode` | str | `'split'` | 验证模式：`'split'`/`'oot'` |
+| `date_col` | str | None | 日期列（OOT模式） |
+| `oot_split_date` | str | None | OOT分割日期 |
+| `enable_advanced_validation` | bool | False | 启用高级验证 |
 
-评估指标说明（训练集同理）
-| 指标名称 | 类型 | 公式 | 意义 |
-|---------|------|------|------|
-| test_hit_count | int | - | 测试集上规则命中的样本数 |
-| test_bad_count | int | - | 测试集上规则命中的坏样本数 |
-| test_good_count | int | - | 测试集上规则命中的好样本数 |
-| test_badrate | float | 测试集命中坏样本数 / 测试集命中样本数 | 规则在测试集上命中样本的坏样本率 |
-| test_precision | float | 测试集命中坏样本数 / 测试集命中样本数 | 规则在测试集上的精确率 |
-| test_recall | float | 测试集命中坏样本数 / 测试集总坏样本数 | 规则在测试集上的召回率 |
-| test_f1 | float | 2 * (精确率 * 召回率) / (精确率 + 召回率) | 测试集上精确率和召回率的调和平均值 |
-| test_lift | float | 规则坏样本率 / 测试集总坏样本率 | 规则在测试集上的提升度，核心评估指标 |
-| test_hit_rate | float | 测试集命中样本数 / 测试集总样本数 | 规则在测试集上的命中率 |
-| test_baseline_badrate | float | 测试集总坏样本数 / 测试集总样本数 | 测试集整体坏样本率（基准） |
-| test_badrate_after_interception | float | (测试集总坏样本数 - 命中坏样本数) / (测试集总样本数 - 命中样本数) | 规则拦截后剩余样本的坏样本率 |
-| test_badrate_reduction | float | [(基准坏样本率 - 拦截后坏样本率) / 基准坏样本率] / 命中率 | 规则效率 |
-| badrate_diff | float | 训练集lift - 测试集lift | 训练集和测试集提升度的差异，衡量规则泛化能力 |
+---
 
-##### 3.7 可视化功能
+#### 5.4 TreeRuleExtractor
 
-TreeRuleExtractor 提供了丰富的可视化功能：
+统一树模型规则提取器，支持 dt/rf/gbdt/chi2/isf 五种算法。
 
 ```python
-# 特征重要性图
-tree_miner.plot_feature_importance(save_path='images/tree_feature_importance.png')
-print("特征重要性图已保存到: images/tree_feature_importance.png")
+from rulelift.mining import TreeRuleExtractor
 
-# 决策树结构图（仅支持决策树和卡方决策树）
-tree_miner.plot_decision_tree(save_path='images/tree_decision_structure.pdf')
-print("决策树结构图已保存到: images/tree_decision_structure.pdf")
+extractor = TreeRuleExtractor(
+    df,
+    target_col='label',
+    exclude_cols=['user_id'],
+    algorithm='rf',              # 'dt' | 'rf' | 'gbdt' | 'chi2' | 'isf'
+    max_depth=3,
+    min_samples_leaf=5,
+    n_estimators=10,             # dt时为1
+    random_state=42,
+    feature_trends='auto'
+)
 
-# 规则评估图
-tree_miner.plot_rule_evaluation(save_path='images/tree_rule_evaluation.png')
-print("规则评估图已保存到: images/tree_rule_evaluation.png")
+extractor.train()
+rules = extractor.extract_rules()
+result = extractor.evaluate_rules()   # 注意：不需要传参（isf除外）
 ```
 
-### 最佳实践
+**算法说明**:
 
-#### 1. 规则评估最佳实践
+| 算法 | 适用场景 | 说明 |
+|------|---------|------|
+| `dt` | 快速生成规则 | 单棵决策树，简单直观 |
+| `rf` | 需要稳定规则 | 随机森林，多树集成 |
+| `gbdt` | 追求高精度 | 梯度提升树，需设置 `learning_rate` 和 `subsample` |
+| `chi2` | 自动分箱+随机森林 | 先用卡方算法自动分箱，再构建随机森林，需设置 `min_bin_ratio` |
+| `isf` | 异常检测场景 | 孤立森林，通过异常分数发现风险规则。**注意**: 不支持 `evaluate_rules()` |
 
-**数据准备**：
-- 确保规则命中数据包含必要的列：RULE、USER_ID、HIT_DATE、USER_LEVEL、USER_LEVEL_BADRATE、USER_TARGET
-- 如果使用用户评级评估，确保USER_LEVEL_BADRATE列准确反映每个评级的历史坏账率
-- 如果使用实际逾期数据，确保USER_TARGET列准确反映用户的实际逾期情况
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `df` | DataFrame | - | 数据集 |
+| `target_col` | str | `'ISBAD'` | 目标列 |
+| `exclude_cols` | list | None | 排除列 |
+| `algorithm` | str | `'rf'` | 算法：`'dt'`/`'rf'`/`'gbdt'`/`'chi2'`/`'isf'` |
+| `max_depth` | int | 3 | 最大深度 |
+| `min_samples_split` | int | 10 | 分裂最小样本数 |
+| `min_samples_leaf` | int/float | 5 | 叶子最小样本数（支持浮点比例） |
+| `n_estimators` | int | 10 | 树数量（dt时忽略） |
+| `max_features` | str | `'sqrt'` | 最大特征数 |
+| `learning_rate` | float | 0.1 | 学习率（gbdt） |
+| `subsample` | float | 1.0 | 子采样比例（gbdt） |
+| `min_bin_ratio` | float | 0.05 | 最小分箱比例（chi2算法） |
+| `isf_weights` | dict | None | 孤立森林规则权重配置 |
+| `test_size` | float | 0.3 | 测试集比例 |
+| `random_state` | int | 42 | 随机种子 |
+| `amount_col` | str | None | 金额列（可选） |
+| `ovd_bal_col` | str | None | 逾期余额列（可选） |
+| `feature_trends` | dict/str | None | 特征趋势约束 |
+| `validation_mode` | str | `'split'` | 验证模式：`'split'`/`'oot'` |
+| `date_col` | str | None | 日期列（OOT模式） |
+| `oot_split_date` | str | None | OOT分割日期 |
+| `enable_advanced_validation` | bool | False | 启用高级验证 |
 
-**评估指标选择**：
-- **基于用户评级评估**：适用于没有实际逾期数据的场景，使用estimated_badrate_pred和estimated_lift_pred
-- **基于实际逾期评估**：适用于有实际逾期数据的场景，使用actual_badrate和actual_lift
-- **综合评估**：同时使用用户评级和实际逾期数据，获得更全面的评估结果
+**`isf_weights` 可配置项**（孤立森林规则评分权重）:
 
-**稳定性监控**：
-- 使用include_stability=True参数启用稳定性指标计算
-- 关注hit_rate_cv（命中率变异系数），值越小说明规则越稳定
-- 关注avg_monthly_change（月度平均变化），值越小说明规则效果越稳定
+| 键 | 默认值 | 说明 |
+|----|--------|------|
+| `purity` | 0.5 | 坏客户纯度权重 |
+| `anomaly` | 0.3 | 异常分数权重 |
+| `sample` | 0.15 | 样本数量权重 |
+| `hit` | 0.05 | 异常坏客户命中比例权重 |
 
-#### 2. 规则挖掘最佳实践
+**注意**: `evaluate_rules()` 无需传入 rules 参数，内部自动使用已提取的规则。`isf` 算法不支持规则评估。
 
-**算法选择**：
-- **决策树（dt）**：适合快速探索和初步分析，规则简单直观
-- **随机森林（rf）**：适合需要更稳定、多样性的规则效果
-- **卡方决策树（chi2）**：适合需要更严格特征选择的场景
-- **GBDT（gbdt）**：适合需要高精度规则的场景，性能优秀
-- **孤立森林（isf）**：适合发现异常模式的场景，无监督学习
+---
 
-**参数调优**：
-- **max_depth**：控制树的复杂度，建议值3-5
-- **min_samples_split**：控制规则精度，建议值10-20
-- **min_samples_leaf**：控制叶子节点的最小样本数，建议值5-10。但传入<1的小数如0.05则设置为训练集样本数5%，值越大避免叶子节点过于复杂
-- **n_estimators**：控制树的数量，建议值10-100
-- **max_features**：每棵树分裂时考虑的最大特征数：'sqrt'或'log2'
-- **test_size**：测试集比例，建议值0.2-0.3
-- **random_state**：随机种子，保证结果可复现，建议值42
+#### 5.5 RuleValidator
 
-**业务解释性配置**：
-- 使用feature_trends参数配置特征与目标标签的正负相关性
-- 确保规则符合业务逻辑，避免生成不符合业务解释性的规则
-- 例如：欺诈分数应该与违约概率负相关，申请次数应该与违约概率正相关
+独立规则验证器，支持 split/OOT 两种验证模式。
 
-**分箱策略选择**：
-- **等频分箱（quantile）**：适用于大多数场景，确保每个分箱都有足够的样本
-- **卡方分箱（chi2）**：适用于需要更精细分箱的场景，保留风险区分度高的分箱
-- **自定义分箱**：适用于有明确业务规则或历史阈值的场景
+```python
+from rulelift.mining import RuleValidator
 
+validator = RuleValidator(
+    df, target_col='label',
+    validation_mode='split',      # 'split' | 'oot'
+    test_size=0.3,
+    date_col='repay_datetime',
+    oot_split_date='2026-02-01'
+)
 
-### 常见问题解答
+# 分割数据（必须先调用）
+validator.split_train_test()
 
-#### Q1：如何处理缺失值？
-**A**：缺失值会被自动处理：
-- 在规则评估时，缺失值会被自动忽略
-- 在规则挖掘时，缺失值会被自动排除
-- 建议在数据预处理阶段填充或删除缺失值
+# 评估单条规则
+result = validator.evaluate_rule("feature1 > 100")
 
-#### Q2：如何提高规则的泛化能力？
-**A**：提高规则泛化能力的方法：
-- 增加min_samples_split和min_samples_leaf参数值
-- 减少max_depth参数值
-- 使用随机森林或GBDT等集成方法
-- 在测试集上验证规则效果，避免过拟合
+# 批量评估规则
+results = validator.evaluate_rules(["feature1 > 100", "feature2 <= 50"])
+comparison = validator.compare_train_test_performance(results)
+validator.print_validation_report(comparison)
+```
 
-### 性能优化建议
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `df` | DataFrame | - | 数据集 |
+| `target_col` | str | `'ISBAD'` | 目标列 |
+| `test_size` | float | 0.2 | 测试集比例 |
+| `validation_mode` | str | `'split'` | 验证模式：`'split'`/`'oot'` |
+| `random_state` | int | 42 | 随机种子 |
+| `date_col` | str | None | 日期列（OOT模式） |
+| `oot_split_date` | str | None | OOT分割日期 |
 
-#### 1. 数据预处理优化
-- 删除不必要的列，减少内存使用
-- 使用合适的数据类型（如category类型用于分类变量）
-- 提前进行数据清洗，避免重复计算
+> **RuleValidatorMixin**: `DecisionTreeRuleExtractor` 和 `TreeRuleExtractor` 自动继承 `RuleValidatorMixin`，无需单独创建 `RuleValidator` 即可使用验证功能。
 
-#### 2. 规则挖掘优化
-- 使用合适的max_depth值，避免树过深
-- 使用合适的min_samples_split和min_samples_leaf值，避免规则过细
-- 对于大数据集，可以增加n_estimators值提高性能
+---
 
-#### 3. 规则评估优化
-- 使用向量化操作，避免循环
-- 使用pandas的内置函数，提高计算效率
-- 对于大量规则，可以使用并行计算
+### 六、可视化 (visualization/)
 
+#### 6.1 RuleVisualizer
 
+```python
+from rulelift.visualization import RuleVisualizer
+
+viz = RuleVisualizer(dpi=300)
+
+# 规则比较图
+fig = viz.plot_rule_comparison(rules_df, metrics=['lift', 'badrate'], save_path='comp.png')
+
+# 规则分布直方图
+fig = viz.plot_rule_distribution(rules_df, metric='lift', save_path='dist.png')
+
+# Lift-Precision 散点图
+fig = viz.plot_lift_precision_scatter(rules_df, save_path='scatter.png')
+
+# 热力图
+fig = viz.plot_heatmap(correlation_matrix, save_path='heatmap.png')
+
+# 决策树图
+fig = viz.plot_decision_tree(model, feature_cols, save_path='tree.png')
+
+# 导出规则
+viz.export_rules(rules_df, 'rules', export_format='csv')  # 'csv'/'json'/'excel'
+
+# 生成综合报告
+viz.generate_rule_report(rules_df, report_path='./report')
+```
+
+#### 6.2 便捷函数
+
+```python
+from rulelift.visualization import (
+    plot_rule_comparison, plot_rule_distribution,
+    plot_lift_precision_scatter, plot_heatmap,
+    generate_rule_report
+)
+
+fig = plot_rule_comparison(rules_df)
+fig = plot_rule_distribution(rules_df, metric='lift')
+fig = plot_lift_precision_scatter(rules_df)
+fig = plot_heatmap(corr_matrix)
+generate_rule_report(rules_df, report_path='./report')
+```
+
+**rules_df 所需列**: `rule_description`, `lift`, `badrate`, `sample_count`, `precision`（按需）
+
+---
+
+### 七、Pipeline
+
+#### 7.1 RuleMiningPipeline
+
+一键完成全流程规则挖掘。
+
+```python
+from rulelift.pipeline import RuleMiningPipeline
+
+pipeline = RuleMiningPipeline(
+    df,
+    target_col='label',
+    exclude_cols=['user_id', 'repay_datetime'],
+
+    # OOT分割
+    date_col='repay_datetime',
+    oot_split_date='2026-02-01',
+
+    # 内存管理
+    memory_mode='auto',          # 'auto' | 'full' | 'low'
+    min_free_memory_mb=500,
+
+    # 特征选择
+    select_iv_threshold=0.02,
+    select_psi_threshold=0.25,
+    select_max_features=None,    # None=不限制
+
+    # 变量分析
+    variable_binning_method='chi2',
+    variable_n_bins=10,
+    variable_n_jobs=-1,
+
+    # 单特征规则
+    single_iv_threshold=0.1,    # 使用 IV>=0.1 的特征
+    single_top_n=10,
+    single_min_lift=1.1,
+
+    # 交叉特征规则
+    cross_iv_threshold=0.05,
+    cross_top_features=3,
+    cross_max_pairs=6,
+
+    # 树模型规则
+    tree_algorithm='rf',
+    tree_max_depth=3,
+    tree_n_estimators=10,
+
+    # 特征趋势约束
+    feature_trends='auto',
+
+    # 功能开关
+    enable_variable_analysis=True,
+    enable_single_rules=True,
+    enable_cross_rules=True,
+    enable_tree_rules=True,
+
+    verbose=True
+)
+
+results = pipeline.fit()
+```
+
+**执行流程**: 数据验证 → 变量分析 → 特征分组 → 单特征挖掘 → 交叉特征挖掘 → 树模型挖掘 → 结果汇总
+
+---
+
+#### 7.2 RuleMiningResults
+
+Pipeline 返回的结果对象。
+
+```python
+# 获取所有规则（合并排序）
+all_rules = results.get_all_rules(sort_by='lift', min_lift=1.2)
+
+# 按类型获取
+single = results.get_single_rules(n=10, sort_by='lift')
+cross = results.get_cross_rules()
+tree = results.get_tree_rules()
+
+# Top N 规则
+top = results.get_top_rules(n=10, metric='lift', rule_type='single')
+
+# 汇总
+summary = results.get_summary()
+
+# 导出 Excel
+results.to_excel('results.xlsx')
+
+# 可视化摘要（特征分组饼图 + 规则类型条形图）
+fig = results.plot_summary()
+```
+
+| 方法 | 说明 | 返回 |
+|------|------|------|
+| `get_all_rules(sort_by, ascending, min_lift, min_samples)` | 合并所有规则 | DataFrame |
+| `get_single_rules(n, sort_by)` | 获取单特征规则 | DataFrame |
+| `get_cross_rules(n, sort_by)` | 获取交叉规则 | DataFrame |
+| `get_tree_rules(n, sort_by)` | 获取树模型规则 | DataFrame |
+| `get_top_rules(n, metric, rule_type)` | Top N 规则 | DataFrame |
+| `get_summary()` | 汇总统计 | DataFrame |
+| `to_excel(path)` | 导出 Excel（多Sheet） | None |
+| `plot_summary()` | 绘制摘要图（特征分组饼图 + 规则类型条形图） | Figure |
+
+---
+
+## 内存优化与性能
+
+### 内存优化策略
+
+| 优化技术 | 说明 | 效果 |
+|---------|------|------|
+| **批处理** | 动态调整批次大小，每批后gc.collect() | 减少50%内存峰值 |
+| **Numpy向量化** | 使用np.digitize代替pd.cut | 减少80%临时内存 |
+| **缓存机制** | 分箱结果缓存，避免重复计算 | 提升30%速度 |
+| **内存监控** | 实时监控，自动降级 | 避免OOM崩溃 |
+
+### 大数据集配置建议
+
+```python
+# 场景1: 百万级样本 × 千级特征
+pipeline = RuleMiningPipeline(
+    df,
+    target_col='label',
+    memory_mode='auto',
+    select_max_features=500,
+    variable_n_jobs=1,
+    enable_auto_cleanup=True
+)
+
+# 场景2: 服务器大内存 (>16GB)
+pipeline = RuleMiningPipeline(
+    df,
+    target_col='label',
+    memory_mode='full',
+    variable_n_jobs=-1,
+    select_max_features=None
+)
+```
+
+### 实际测试结果
+
+| 数据规模 | 特征数 | 耗时 | 内存峰值 |
+|---------|-------|------|---------|
+| 73K × 12,327 | 12,325 (含OOT PSI) | ~13min | ~14GB |
+| 73K × 12,327 | Pipeline fit (无OOT) | ~26min | ~28GB |
+| 73K × 12,327 | Pipeline fit (含OOT) | ~25min | ~28GB |
+| 26K × 14,468 | 50 (子集测试) | ~18s | ~4GB |
+| 26K × 14,468 | Pipeline fit (50特征, 含OOT) | ~1.5s | ~4GB |
+
+---
+
+## 最佳实践
+
+### 1. 完整分析工作流
+
+```python
+from rulelift import VariableAnalyzer, RuleMiningPipeline
+
+# Step 1: Pipeline一键分析
+pipeline = RuleMiningPipeline(df, target_col='label', select_max_features=100)
+results = pipeline.fit()
+
+# Step 2: 查看变量分析
+top_iv = results.variable_analysis.nlargest(10, 'iv')
+
+# Step 3: 查看规则
+print(results.single_rules.sort_values('lift', ascending=False).head(10))
+```
+
+### 2. 自定义分箱
+
+```python
+custom_bins = {
+    'age': [18, 25, 35, 45, 55, 65],
+    'city': [['北京', '上海'], ['深圳', '广州'], ['其他']]
+}
+
+analyzer = VariableAnalyzer(df, target_col='label')
+detail = analyzer.analyze_variables_detail(
+    variables=['age', 'city'],
+    custom_bins_params=custom_bins,
+    visualize=True
+)
+```
+
+### 3. OOT稳定性分析
+
+```python
+result = analyzer.analyze_all_variables(
+    oot_split_date='2026-02-01',
+    date_col='repay_datetime'
+)
+stable = result[result['psi'] < 0.1]
+print(f"稳定特征数: {len(stable)}")
+```
+
+### 4. 规则描述评估
+
+```python
+from rulelift.analysis import evaluate_rule_description
+
+rules = [
+    {'overdue_days': [90, None]},         # 逾期天数 >= 90
+    {'history_num': [None, 5]},          # 历史次数 <= 5
+    {'app_type': ['TYPE_A', 'TYPE_B']}, # 特定产品类型
+    {'pd123': [0.5, None], 'overdue_days': [30, None]},  # 多条件
+]
+result = evaluate_rule_description(rules, df, target_col='label')
+print(result[['rule_description', 'badrate', 'lift', 'cum_total_pct']])
+```
+
+---
+
+## 架构文档
+
+### 项目结构
+
+```
+rulelift/
+├── pipeline.py                 # RuleMiningPipeline 一体化流程
+├── analysis/                   # 分析模块
+│   ├── variable_analysis.py    # 变量分析 (VariableAnalyzer)
+│   ├── rule_analysis.py        # 规则评估 (evaluate_rule_description 等)
+│   └── strategy_analysis.py    # 策略分析 (calculate_strategy_gain)
+├── mining/                     # 规则挖掘模块
+│   ├── single_feature.py       # 单特征挖掘 (SingleFeatureRuleMiner)
+│   ├── multi_feature.py        # 交叉特征挖掘 (MultiFeatureRuleMiner)
+│   ├── tree_rule_extractor.py  # 统一树模型 (TreeRuleExtractor: dt/rf/gbdt/chi2/isf)
+│   ├── decision_tree.py        # 决策树 (DecisionTreeRuleExtractor)
+│   └── rule_validator.py       # 规则验证 (RuleValidator)
+├── metrics/                    # 指标计算模块
+│   ├── basic.py                # 基础指标 (trends, cumulative, correlation)
+│   ├── advanced.py             # 高级指标 (strategy pair gain)
+│   └── stability.py            # 稳定性指标 (PSI, stability)
+├── visualization/              # 可视化模块
+│   └── rule.py                 # RuleVisualizer + 便捷函数
+├── utils/                      # 工具模块
+│   ├── binning_calculator.py   # UnifiedBinningCalculator
+│   ├── categorical.py           # 类别变量处理
+│   ├── data_loader.py          # 加载示例数据
+│   ├── data_processing.py      # 数据预处理
+│   ├── validation.py           # 列验证
+│   └── parallel.py             # 并行执行器
+└── base/                       # 基础模块
+    ├── analyzer_base.py        # BaseAnalyzer, DataQualityChecker
+    └── pipeline_result.py      # RuleMiningResults
+```
+
+---
+
+## 常见问题
+
+### Q1: 如何选择分箱方法？
+
+| 方法 | 特点 | 适用场景 |
+|------|------|----------|
+| `chi2` | 基于统计显著性，自动合并 | 数据分布不均匀，需要业务解释 |
+| `quantile` | 等频分箱，样本均匀分布 | 数据分布相对均匀 |
+
+### Q2: IV/KS/PSI 如何解读？
+
+| 指标 | 强 | 中 | 弱 |
+|------|-----|-----|-----|
+| IV | > 0.3 | 0.1~0.3 | < 0.1 |
+| KS | > 0.3 | 0.2~0.3 | < 0.2 |
+| PSI | < 0.1 (稳定) | 0.1~0.25 | > 0.25 |
+
+### Q3: 如何处理大规模数据？
+
+```python
+pipeline = RuleMiningPipeline(
+    df, target_col='label',
+    memory_mode='auto',
+    select_max_features=500,
+    enable_auto_cleanup=True
+)
+```
+
+### Q4: DecisionTreeRuleExtractor 报错 dtype 不兼容？
+
+v1.5.1 已自动排除 datetime/timedelta 列，无需手动处理。如果使用旧版本，可手动排除：
+```python
+exclude = ['date_col'] + [c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])]
+extractor = DecisionTreeRuleExtractor(df, target_col='label', exclude_cols=exclude)
+```
+
+### Q5: TreeRuleExtractor.evaluate_rules() 报错参数错误？
+
+`TreeRuleExtractor.evaluate_rules()` 无需传入 rules 参数：
+```python
+extractor.train()
+rules = extractor.extract_rules()
+result = extractor.evaluate_rules()  # 正确：不传参
+```
+
+---
+
+## 更新日志
+
+### v1.6.0 (最新)
+- 新增简化调用别名：核心类提供更短的方法名（如 `.vars()`、`.rules()`、`.perf()`）
+
+### v1.5.1
+- 修复 DecisionTreeRuleExtractor/TreeRuleExtractor 不自动排除 datetime 列导致 sklearn 崩溃
+- 修复 DecisionTreeRuleExtractor/TreeRuleExtractor 遇到 dict/list/混合类型列时 LabelEncoder 报错
+- 修复 DecisionTreeRuleExtractor 高级验证模式下 train/test 分割使用未编码数据
+
+### v1.5.0
+- 统一 feature_trends 特征趋势约束
+- 新增 `compute_feature_trends()` 自动推断特征趋势方向
+- 新增 `evaluate_rule_description()` 规则描述直接评估
+- 新增 `add_cumulative_metrics()` 累计指标计算
+- 新增 MultiFeatureRuleMiner `get_top_rules_histogram()`
+- 所有挖掘器输出均包含累计指标列
+- Pipeline feature_trends 参数透传
+
+### v1.4.0
+- 新增 RuleMiningPipeline 一体化分析流程
+- 内存优化：批处理 + numpy向量化
+- 支持大规模数据（万级特征）
+- 新增二元特征处理
+
+### v1.1.0
+- 新增 TreeRuleExtractor
+- 新增 MultiFeatureRuleMiner
+
+### v1.0.0
+- 首次发布
+
+---
 
 ## 许可证
 
 MIT License
+
+---
+
+## 联系方式
+
+- GitHub: https://github.com/aialgorithm/rulelift
+- Issues: https://github.com/aialgorithm/rulelift/issues
+- Email: 15880982687@qq.com
+
+---
+
+<a name="english-version"></a>
+
+# English Version
+
+## Project Overview
+
+**RuleLift** is a professional **Python credit risk management toolkit**, focused on **rule mining**, **rule evaluation**, and **rule monitoring**.
+
+### Why RuleLift?
+
+| Traditional Pain Point | RuleLift Solution |
+|-----------------------|-------------------|
+| Hard to monitor online rules: intercepted customers lack performance data | Real-time rule evaluation based on user rating distribution, no A/B testing needed |
+| Complex rule mining: manual mining is time-consuming | Automatically mine high-value business rules from data |
+| Tedious feature analysis: switching between multiple tools | All-in-one IV/KS/AUC/PSI analysis |
+| Large data processing: OOM crashes | Memory-optimized design, supports 10K+ features, million-level samples |
+
+### Core Capabilities
+
+```
+RuleLift
+├── Rule Intelligence   - Evaluate rule performance without A/B testing
+├── Auto Rule Mining    - Single feature, cross feature, tree model mining
+├── Deep Variable Analysis - Comprehensive IV/KS/AUC/PSI metrics
+├── Memory Optimization - Batching, vectorization, caching for large-scale data
+└── One-stop Pipeline   - Automated full-process rule mining
+```
+
+---
+
+## Quick Start
+
+### Installation
+
+```bash
+pip install rulelift
+```
+
+**Requirements**: Python >= 3.8 | pandas >= 1.0.0 | numpy >= 1.18.0 | scikit-learn >= 0.24.0 | matplotlib >= 3.3.0
+
+### 5-Minute Getting Started
+
+```python
+from rulelift import RuleMiningPipeline
+
+import pandas as pd
+df = pd.read_csv('your_data.csv')
+
+# One-click full analysis
+pipeline = RuleMiningPipeline(
+    df=df,
+    target_col='ISBAD',
+    exclude_cols=['ID', 'CREATE_TIME'],
+    select_max_features=100,
+    enable_variable_analysis=True,
+    enable_single_rules=True,
+    enable_cross_rules=True,
+    enable_tree_rules=True,
+    verbose=True
+)
+
+results = pipeline.fit()
+
+# View results
+print(results.get_summary())
+
+# Get all rules
+all_rules = results.get_all_rules()
+all_rules.to_excel('rules_output.xlsx')
+```
+
+---
+
+## Simplified Aliases
+
+Core classes provide simplified alias methods for zero-overhead convenience.
+
+### Comparison
+
+```python
+from rulelift import VariableAnalyzer, SingleFeatureRuleMiner, DecisionTreeRuleExtractor
+
+# === Traditional Calls ===
+result = analyzer.analyze_all_variables(oot_split_date='2026-02-01', date_col='repay_datetime')
+detail = analyzer.analyze_variables_detail(variables=['age', 'income'], visualize=True)
+rules = miner.get_top_rules(feature=['age', 'income'], top_n=10)
+perf = extractor.perf()
+
+# === Simplified Calls (equivalent) ===
+result = analyzer.vars(oot_split_date='2026-02-01', date_col='repay_datetime')
+detail = analyzer.vars_detail(variables=['age', 'income'], visualize=True)
+rules = miner.rules(feature=['age', 'income'], top_n=10)
+perf = extractor.perf()
+```
+
+### Complete Alias List
+
+| Class | Alias | Original Method | Description |
+|-------|-------|----------------|-------------|
+| **VariableAnalyzer** | `.vars()` | `.analyze_all_variables()` | Analyze all variables |
+| | `.vars_detail()` | `.analyze_variables_detail()` | Detailed variable analysis |
+| | `.vars_one()` | `.analyze_variables_detail()` | Analyze single variable |
+| | `.select()` | `.select_features()` | Feature selection |
+| | `.plot_bins()` | `.plot_variable_bins()` | Plot binning chart |
+| | `.quality()` | `.check_data_quality()` | Data quality check |
+| | `.psi()` | `.calculate_psi()` | Calculate PSI |
+| **SingleFeatureRuleMiner** | `.rules()` | `.get_top_rules()` | Get single feature rules |
+| **MultiFeatureRuleMiner** | `.rules()` | `.get_top_rules()` | Get cross feature rules |
+| | `.rules_hist()` | `.get_top_rules_histogram()` | Histogram threshold search |
+| | `.cross_matrix()` | `.generate_cross_matrix()` | Generate cross matrix |
+| | `.cross_excel()` | `.generate_cross_matrices_excel()` | Export cross rules to Excel |
+| | `.heatmap()` | `.plot_cross_heatmap()` | Cross feature heatmap |
+| **DecisionTreeRuleExtractor** | `.rules_list()` | `.get_rules_as_dataframe()` | Get rules as DataFrame |
+| | `.top_rules()` | `.get_top_rules()` | Get Top N rules |
+| | `.importance()` | `.get_feature_importance()` | Feature importance |
+| | `.perf()` | `N/A` | Model performance |
+| | `.generalize()` | `.analyze_rule_generalization()` | Rule generalization |
+| **TreeRuleExtractor** | `.importance()` | `.get_feature_importance()` | Feature importance |
+| **RuleMiningResults** | `.all()` | `.get_all_rules()` | Get all rules |
+| | `.top()` | `.get_top_rules()` | Get Top N rules |
+
+---
+
+## Core Features
+
+### 1. Rule Intelligence Evaluation
+
+Evaluate rule performance based on user rating distributions without A/B testing.
+
+**Supported Metrics**:
+- **Estimated metrics**: Bad rate, Lift, Recall, Precision
+- **Actual metrics**: F1 Score, Actual bad rate, Actual lift
+- **Stability metrics**: Hit rate std, Coefficient of variation
+
+### 2. Auto Rule Mining
+
+Multiple mining algorithms for different business scenarios:
+
+| Algorithm | Use Case | Characteristics |
+|-----------|----------|----------------|
+| `SingleFeatureRuleMiner` | Fast strong feature discovery | Single feature optimal threshold mining, memory optimized |
+| `MultiFeatureRuleMiner` | Improve rule coverage | Cross feature combinations, numpy vectorized |
+| `TreeRuleExtractor('dt')` | Quick rule generation | Decision tree, simple and intuitive |
+| `TreeRuleExtractor('rf')` | Need stable rules | Random forest, multi-tree ensemble |
+| `TreeRuleExtractor('gbdt')` | Pursue high accuracy | Gradient boosting trees |
+| `TreeRuleExtractor('chi2')` | Auto-binning + random forest | Chi-square auto-binning then random forest |
+| `TreeRuleExtractor('isf')` | Anomaly detection | Isolation forest, discovers risk rules via anomaly scores |
+
+### 3. Deep Variable Analysis
+
+Comprehensive variable evaluation:
+
+| Metric | Description | Application | Criteria |
+|--------|------------|-------------|----------|
+| IV (Information Value) | Predictive power | Feature selection | >0.3 strong, 0.02-0.1 medium, <0.02 weak |
+| KS (Kolmogorov-Smirnov) | Discriminative power | Binning evaluation | >0.3 strong, 0.2-0.3 medium, <0.2 weak |
+| AUC | Prediction accuracy | Model evaluation | >0.7 good |
+| PSI (Population Stability) | Variable stability | Feature drift monitoring | <0.1 stable, >0.25 unstable |
+
+### 4. Strategy Optimization
+
+Calculate marginal gains for rule combinations to find optimal strategy combinations.
+
+---
+
+## Pipeline Reference
+
+`RuleMiningPipeline` integrates all functionalities for one-click full analysis.
+
+### Complete Parameters
+
+```python
+from rulelift.pipeline import RuleMiningPipeline
+
+pipeline = RuleMiningPipeline(
+    df=data,
+    target_col='ISBAD',
+
+    # === Data Configuration ===
+    exclude_cols=['ID', 'TIME'],
+    amount_col='AMOUNT',
+    ovd_bal_col='OVD_BAL',
+    date_col='CREATE_TIME',
+    oot_split_date='2024-01-01',
+
+    # === Feature Selection ===
+    select_iv_threshold=0.02,
+    select_max_features=100,
+    select_psi_threshold=None,       # None = no PSI filtering
+
+    # === Variable Analysis ===
+    variable_binning_method='chi2',
+    variable_n_bins=10,
+    variable_min_samples_pct=0.05,
+    variable_chi2_threshold=3.841,
+    variable_n_jobs=-1,
+
+    # === Single Feature Rules ===
+    single_iv_threshold=0.1,
+    single_top_n=10,
+    single_min_lift=1.1,
+    single_min_samples=10,
+    single_algorithm='histogram',
+    single_n_jobs=-1,
+
+    # === Cross Feature Rules ===
+    cross_iv_threshold=0.05,
+    cross_top_features=3,
+    cross_top_n=5,
+    cross_min_samples=10,
+    cross_min_lift=1.1,
+    cross_n_bins=8,
+    cross_max_pairs=6,
+
+    # === Tree Model Rules ===
+    tree_algorithm='rf',              # 'dt', 'rf', 'gbdt', 'chi2', 'isf'
+    tree_max_depth=3,
+    tree_min_samples_leaf=5,
+    tree_n_estimators=10,
+    tree_max_features='sqrt',
+    tree_top_n=20,
+
+    # === Global Controls ===
+    feature_trends='auto',           # Dict / 'auto' / None
+    enable_variable_analysis=True,
+    enable_single_rules=True,
+    enable_cross_rules=True,
+    enable_tree_rules=True,
+    enable_validation=False,
+    random_state=42,
+    verbose=True,
+
+    # === Memory Management ===
+    memory_mode='auto',              # 'auto', 'full', 'low'
+    min_free_memory_mb=500,
+    enable_auto_cleanup=True,
+    auto_skip_on_low_memory=False,
+)
+
+results = pipeline.fit()
+```
+
+### Pipeline Execution Flow
+
+```
+Step 0: Data Validation
+  └─> Validate data integrity and target column
+
+Step 1: Variable Analysis
+  └─> Calculate IV/KS/AUC/PSI for all variables
+
+Step 2: Feature Grouping
+  └─> Group by IV thresholds: High | Mid | Low
+
+Step 3: Single Feature Rule Mining
+  └─> Threshold mining for high-IV features
+
+Step 4: Cross Feature Rule Mining
+  └─> Cross combination mining for mid-IV features
+
+Step 5: Tree Model Rule Mining
+  └─> Decision tree / random forest / GBDT rule extraction
+
+Step 6: Result Aggregation
+```
+
+---
+
+## Full API Reference
+
+### I. Utility Functions (utils/)
+
+#### load_example_data
+
+Load built-in example data.
+
+```python
+from rulelift.utils import load_example_data
+df = load_example_data()  # 998 rows × 6 columns
+```
+
+#### preprocess_data
+
+Preprocess data, convert percentage strings to floats.
+
+```python
+from rulelift.utils import preprocess_data
+df = preprocess_data(df, user_level_badrate_col='BADRATE')
+```
+
+#### UnifiedBinningCalculator
+
+Unified binning calculator supporting multiple binning methods.
+
+```python
+from rulelift.utils import UnifiedBinningCalculator
+import numpy as np
+
+calc = UnifiedBinningCalculator(n_bins=10, default_method='chi2')
+
+# Compute bin edges (pass numpy arrays)
+bins = calc.compute_bins(df['feature'].values, df['target'].values, n_bins=10)
+
+# Compute bin statistics (returns tuple: (stats_df, iv, ks))
+stats_df, iv, ks = calc.compute_bin_stats(df['feature'].values, df['target'].values, bins)
+
+# Apply bins
+binned = calc.apply_bins(df['feature'].values, bins)
+```
+
+| Constructor Parameter | Type | Default | Description |
+|----------------------|------|---------|-------------|
+| `default_method` | str | `'quantile'` | Binning method: `'quantile'`/`'chi2'`/`'equal_width'` |
+| `n_bins` | int | 10 | Default bin count |
+| `chi2_threshold` | float | 3.841 | Chi-square threshold |
+| `min_samples_pct` | float | 0.02 | Minimum sample percentage |
+| `decimal_places` | int | 3 | Decimal precision |
+| `robust_mode` | bool | True | Robust mode (fallback on errors) |
+
+#### CategoricalVariableProcessor
+
+Automatic categorical variable detection and processing.
+
+```python
+from rulelift.utils.categorical import CategoricalVariableProcessor
+
+proc = CategoricalVariableProcessor()
+info = proc.detect_and_prepare(df, 'app_type', 'label')
+# info: {'feature': 'app_type', 'method': '...', 'detection': {...}, 'bin_mapping': {...}}
+```
+
+---
+
+### II. Metrics (metrics/)
+
+#### compute_feature_trends
+
+Auto-detect feature trend direction (based on correlation).
+
+```python
+from rulelift.metrics import compute_feature_trends
+
+trends = compute_feature_trends(df, ['age', 'income'], target_col='label')
+# {'age': 1, 'income': -1}
+# 1 = positive correlation, -1 = negative correlation
+```
+
+#### add_cumulative_metrics
+
+Add cumulative metrics to rule results.
+
+```python
+from rulelift.metrics import add_cumulative_metrics
+
+# DataFrame must contain 'selected_samples' and 'selected_bad' columns
+rules_df = add_cumulative_metrics(rules_df, sort_by='threshold', ascending=True)
+# Adds: cum_total_pct, cum_bad_rate, cum_bad_rate_remaining
+```
+
+#### calculate_psi
+
+Calculate Population Stability Index.
+
+```python
+from rulelift.metrics import calculate_psi
+
+psi = calculate_psi(train_data, oot_data, buckets=10)
+# <0.1 stable, 0.1-0.25 moderate, >0.25 unstable
+```
+
+#### Stability Metrics
+
+```python
+from rulelift.metrics import calculate_rule_psi, calculate_rule_stability, calculate_long_term_stability
+
+# Rule PSI over time periods
+psi_df = calculate_rule_psi(rule_score, 'RULE', 'HIT_DATE', 'USER_ID')
+
+# Monthly rule stability
+stability = calculate_rule_stability(rule_score, 'RULE', 'HIT_DATE', 'USER_ID')
+
+# Long-term stability (rolling window)
+long_term = calculate_long_term_stability(rule_score, 'RULE', 'HIT_DATE', 'USER_ID', window_months=6)
+```
+
+---
+
+### III. Variable Analysis (analysis/VariableAnalyzer)
+
+#### Constructor
+
+```python
+from rulelift.analysis import VariableAnalyzer
+
+analyzer = VariableAnalyzer(
+    df,
+    target_col='label',
+    exclude_cols=['user_id', 'date_col'],
+    n_bins=10,
+    binning_method='chi2',          # 'chi2' | 'quantile'
+    min_samples_pct=0.02,
+    n_jobs=-1,
+    log_level='INFO'
+)
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `df` | DataFrame | - | Input dataset |
+| `target_col` | str | `'ISBAD'` | Target column |
+| `exclude_cols` | list | None | Columns to exclude |
+| `amount_col` | str | None | Amount column (optional) |
+| `ovd_bal_col` | str | None | Overdue balance column (optional) |
+| `n_bins` | int | 10 | Default bin count |
+| `binning_method` | str | `'chi2'` | Binning method |
+| `chi2_threshold` | float | 3.841 | Chi-square threshold |
+| `min_samples_pct` | float | 0.02 | Minimum bin sample percentage |
+| `iv_calculation_method` | str | `'standard'` | IV calculation method |
+| `n_jobs` | int | -1 | Parallel processes (-1 = all cores) |
+| `enable_adaptive_parallel` | bool | True | Adaptive parallel (memory-aware) |
+| `memory_threshold_mb` | float | 500 | Memory threshold (MB) |
+| `gc_interval` | int | 5 | GC interval |
+| `log_level` | str | `'INFO'` | Log level |
+
+#### analyze_all_variables
+
+> Alias: `.vars()`
+
+Analyze all variables, computing IV/KS/AUC/PSI.
+
+```python
+result = analyzer.analyze_all_variables(
+    oot_split_date='2026-02-01',
+    date_col='repay_datetime',
+    include_categorical=True,
+    show_progress=True,
+    batch_size=20,
+    sample_size=None
+)
+```
+
+**Returns**: `pd.DataFrame` — one row per feature with `variable`, `iv`, `ks`, `auc`, `gini`, `psi` columns
+
+#### analyze_variables_detail
+
+> Alias: `.vars_detail()` / `.vars_one()`
+
+Detailed binning analysis for specific variables.
+
+```python
+detail = analyzer.analyze_variables_detail(
+    variables=['age', 'income'],
+    n_bins=10,
+    visualize=True,
+    custom_bins_params={
+        'age': [18, 25, 35, 45, 55, 65],
+        'city': [['Beijing', 'Shanghai'], ['Shenzhen', 'Guangzhou'], ['Other']]
+    },
+    oot_split_date='2026-02-01',
+    date_col='repay_datetime',
+    binning_method='chi2'
+)
+```
+
+**Returns**: `pd.DataFrame` — binning statistics
+
+#### select_features
+
+> Alias: `.select()`
+
+Multi-dimensional feature selection.
+
+```python
+result = analyzer.select_features(
+    iv_threshold=0.02,
+    psi_threshold=0.25,
+    ks_threshold=0.02,
+    correlation_threshold=0.85
+)
+# Returns dict: {
+#     'selected_features': [...],
+#     'selected_df': DataFrame,
+#     'rejected_features': {...},
+#     'correlation_removed': {...},
+#     'summary': {...}
+# }
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `analysis_result` | DataFrame | None | Custom analysis result (None = use cache) |
+| `iv_threshold` | float | 0.02 | Minimum IV |
+| `missing_rate_threshold` | float | 0.8 | Maximum missing rate |
+| `single_value_rate_threshold` | float | 0.95 | Maximum single-value rate |
+| `psi_threshold` | float | 0.25 | Maximum PSI |
+| `ks_threshold` | float | 0.02 | Minimum KS |
+| `correlation_threshold` | float | 0.85 | Maximum correlation |
+| `mode` | str | `'and'` | Filter mode: `'and'`/`'or'` |
+
+**Returns**: `Dict` — with keys `selected_features`, `selected_df`, `rejected_features`, `correlation_removed`, `summary`
+
+---
+
+### IV. Rule Analysis (analysis/)
+
+#### evaluate_rule_description
+
+Evaluate rules directly from rule descriptions (no pre-computed hit matrix needed).
+
+```python
+from rulelift.analysis import evaluate_rule_description
+
+results = evaluate_rule_description(
+    [
+        {'age': [60, None]},            # age >= 60
+        {'income': [None, 5000]},      # income <= 5000
+        {'city': ['Beijing', 'Shanghai']},  # city in [...]
+        {'age': [30, 50], 'city': 'Beijing'},  # Multi-condition AND
+    ],
+    df=df,
+    target_col='label'
+)
+```
+
+**Supported Rule Formats**:
+
+| Format | Example | Meaning |
+|--------|---------|---------|
+| Numeric >= | `{'age': [60, None]}` | age >= 60 |
+| Numeric <= | `{'age': [None, 80]}` | age <= 80 |
+| Numeric range | `{'age': [60, 80]}` | 60 <= age <= 80 |
+| Category match | `{'city': 'Beijing'}` | city == 'Beijing' |
+| Category list | `{'city': ['Beijing', 'Shanghai']}` | city in [...] |
+| Multi-condition AND | `{'age': [60, None], 'city': 'Beijing'}` | All conditions must match |
+
+---
+
+### V. Rule Mining (mining/)
+
+> **Deprecated**: `XGBoostRuleMiner` is deprecated. Use `TreeRuleExtractor(algorithm='gbdt')` instead. The `'xgb'` algorithm identifier is also deprecated and auto-converted to `'gbdt'`.
+
+#### 5.1 SingleFeatureRuleMiner
+
+Single feature rule miner via threshold search.
+
+```python
+from rulelift.mining import SingleFeatureRuleMiner
+
+miner = SingleFeatureRuleMiner(
+    df, target_col='label',
+    exclude_cols=['user_id'],
+    min_lift=1.1,
+    algorithm='histogram',     # 'histogram' | 'chi2'
+    n_jobs=-1,
+    feature_trends='auto'
+)
+
+rules = miner.get_top_rules(
+    feature=['age', 'income'],
+    top_n=10,
+    min_samples=10,
+    group_by_feature=True
+)
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `df` | DataFrame | - | Dataset |
+| `target_col` | str | `'ISBAD'` | Target column |
+| `exclude_cols` | list | None | Columns to exclude |
+| `algorithm` | str | `'histogram'` | Algorithm: `'histogram'`/`'chi2'` |
+| `min_lift` | float | 1.1 | Minimum lift value |
+| `histogram_bins` | int | 100 | Histogram bin count |
+| `chi2_threshold` | float | 3.841 | Chi-square threshold |
+| `n_jobs` | int | -1 | Parallel process count |
+| `feature_trends` | dict/str | None | Feature trend constraints |
+| `missing_threshold` | float | 0.95 | Missing rate threshold |
+| `missing_strategy` | str | `'fill'` | Missing value strategy |
+| `test_size` | float | 0.2 | Test set ratio |
+| `validation_mode` | str | `'split'` | Validation mode: `'split'`/`'oot'` |
+
+**Returns**: `pd.DataFrame` — with `feature`, `threshold`, `operator`, `lift`, `badrate`, `selected_samples` etc.
+
+#### 5.2 MultiFeatureRuleMiner
+
+Cross feature rule miner.
+
+```python
+from rulelift.mining import MultiFeatureRuleMiner
+
+miner = MultiFeatureRuleMiner(df, target_col='label')
+
+# Grid binning method
+rules = miner.get_top_rules(
+    feature1='age', feature2='income',
+    top_n=10, min_samples=10, min_lift=1.1
+)
+
+# Histogram threshold search
+rules = miner.get_top_rules_histogram(
+    feature1='age', feature2='income',
+    top_n=10, min_samples=10, min_lift=1.1
+)
+
+# Cross matrix
+cross_matrix = miner.generate_cross_matrix('age', 'income')
+
+# Heatmap
+miner.plot_cross_heatmap('age', 'income', metric='lift', save_path='heatmap.png')
+```
+
+> **Note**: `MultiFeatureRuleMiner` has no `exclude_cols` parameter.
+
+#### 5.3 DecisionTreeRuleExtractor
+
+Decision tree based rule extraction.
+
+```python
+from rulelift.mining import DecisionTreeRuleExtractor
+
+extractor = DecisionTreeRuleExtractor(
+    df, target_col='label',
+    exclude_cols=['user_id', 'repay_datetime'],
+    max_depth=5, min_samples_leaf=5
+)
+
+train_acc, test_acc = extractor.train()
+rules = extractor.extract_rules()
+evaluation = extractor.evaluate_rules(rules)  # Accepts DataFrame or None
+importance = extractor.get_feature_importance()
+```
+
+> **Auto-excludes** datetime/timedelta columns (no manual exclusion needed).
+
+#### 5.4 TreeRuleExtractor
+
+Unified tree model rule extractor supporting 5 algorithms: dt/rf/gbdt/chi2/isf.
+
+```python
+from rulelift.mining import TreeRuleExtractor
+
+extractor = TreeRuleExtractor(
+    df, target_col='label',
+    algorithm='rf',              # 'dt' | 'rf' | 'gbdt' | 'chi2' | 'isf'
+    max_depth=3,
+    min_samples_leaf=5,
+    n_estimators=10,
+    feature_trends='auto'
+)
+
+extractor.train()
+rules = extractor.extract_rules()
+result = extractor.evaluate_rules()   # No arguments needed (except 'isf')
+```
+
+**Algorithm Details**:
+
+| Algorithm | Use Case | Description |
+|-----------|----------|-------------|
+| `dt` | Quick rule generation | Single decision tree |
+| `rf` | Need stable rules | Random forest ensemble |
+| `gbdt` | Pursue high accuracy | Gradient boosting (set `learning_rate`, `subsample`) |
+| `chi2` | Auto-binning + RF | Chi-square auto-binning then random forest (set `min_bin_ratio`) |
+| `isf` | Anomaly detection | Isolation forest via anomaly scores. **Note**: `evaluate_rules()` not supported |
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `algorithm` | str | `'rf'` | Algorithm: `'dt'`/`'rf'`/`'gbdt'`/`'chi2'`/`'isf'` |
+| `max_depth` | int | 3 | Maximum depth |
+| `min_samples_leaf` | int/float | 5 | Minimum leaf samples (supports float ratio) |
+| `n_estimators` | int | 10 | Tree count |
+| `max_features` | str | `'sqrt'` | Max features per split |
+| `learning_rate` | float | 0.1 | Learning rate (gbdt) |
+| `subsample` | float | 1.0 | Subsample ratio (gbdt) |
+| `min_bin_ratio` | float | 0.05 | Min bin ratio (chi2) |
+| `isf_weights` | dict | None | Isolation forest rule weight config |
+| `test_size` | float | 0.3 | Test set ratio |
+| `random_state` | int | 42 | Random seed |
+
+**`isf_weights` Options** (isolation forest rule scoring):
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `purity` | 0.5 | Bad customer purity weight |
+| `anomaly` | 0.3 | Anomaly score weight |
+| `sample` | 0.15 | Sample count weight |
+| `hit` | 0.05 | Anomaly bad customer hit ratio weight |
+
+**Important**: `evaluate_rules()` takes no arguments (uses internally extracted rules). `isf` algorithm does not support rule evaluation.
+
+#### 5.5 RuleValidator
+
+Standalone rule validator supporting split/OOT validation modes.
+
+```python
+from rulelift.mining import RuleValidator
+
+validator = RuleValidator(df, target_col='label', validation_mode='split')
+
+# Split data first (required)
+validator.split_train_test()
+
+# Evaluate a single rule
+result = validator.evaluate_rule("feature1 > 100")
+
+# Batch evaluate
+results = validator.evaluate_rules(["feature1 > 100", "feature2 <= 50"])
+comparison = validator.compare_train_test_performance(results)
+validator.print_validation_report(comparison)
+```
+
+> `RuleValidatorMixin` is inherited by `DecisionTreeRuleExtractor` and `TreeRuleExtractor` automatically.
+
+---
+
+### VI. Visualization (visualization/)
+
+#### RuleVisualizer
+
+```python
+from rulelift.visualization import RuleVisualizer
+
+viz = RuleVisualizer(dpi=300)
+
+fig = viz.plot_rule_comparison(rules_df, metrics=['lift', 'badrate'])
+fig = viz.plot_rule_distribution(rules_df, metric='lift')
+fig = viz.plot_lift_precision_scatter(rules_df)
+fig = viz.plot_heatmap(correlation_matrix)
+```
+
+---
+
+### VII. Pipeline Results (base/RuleMiningResults)
+
+```python
+# Get all rules (merged and sorted)
+all_rules = results.get_all_rules(sort_by='lift', min_lift=1.2)
+
+# By type
+single = results.get_single_rules(n=10, sort_by='lift')
+cross = results.get_cross_rules()
+tree = results.get_tree_rules()
+
+# Top N
+top = results.get_top_rules(n=10, metric='lift', rule_type='single')
+
+# Summary
+summary = results.get_summary()
+
+# Export Excel
+results.to_excel('results.xlsx')
+
+# Visualization (feature group pie chart + rule type bar chart)
+fig = results.plot_summary()
+```
+
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `get_all_rules(sort_by, ascending, min_lift, min_samples)` | Merge all rules | DataFrame |
+| `get_single_rules(n, sort_by)` | Get single feature rules | DataFrame |
+| `get_cross_rules(n, sort_by)` | Get cross feature rules | DataFrame |
+| `get_tree_rules(n, sort_by)` | Get tree model rules | DataFrame |
+| `get_top_rules(n, metric, rule_type)` | Top N rules | DataFrame |
+| `get_summary()` | Summary statistics | DataFrame |
+| `to_excel(path)` | Export Excel (multi-sheet) | None |
+| `plot_summary()` | Plot summary (pie + bar chart) | Figure |
+
+---
+
+## Memory Optimization & Performance
+
+### Optimization Strategies
+
+| Technique | Description | Effect |
+|-----------|-------------|--------|
+| **Batching** | Dynamic batch sizes with gc.collect() | -50% memory peak |
+| **Numpy Vectorization** | np.digitize instead of pd.cut | -80% temp memory |
+| **Caching** | Bin results cached to avoid recomputation | +30% speed |
+| **Memory Monitoring** | Real-time monitoring, auto-degradation | Prevent OOM |
+
+### Large Dataset Configuration
+
+```python
+# Million-level samples × thousand-level features
+pipeline = RuleMiningPipeline(
+    df, target_col='label',
+    memory_mode='auto',
+    select_max_features=500,
+    variable_n_jobs=1,
+    enable_auto_cleanup=True
+)
+
+# Large memory server (>16GB)
+pipeline = RuleMiningPipeline(
+    df, target_col='label',
+    memory_mode='full',
+    variable_n_jobs=-1,
+    select_max_features=None
+)
+```
+
+### Performance Benchmarks
+
+| Dataset Scale | Feature Count | Duration | Peak Memory |
+|--------------|--------------|----------|-------------|
+| 73K x 12,327 | 12,325 (with OOT PSI) | ~13min | ~14GB |
+| 73K x 12,327 | Pipeline fit (no OOT) | ~26min | ~28GB |
+| 73K x 12,327 | Pipeline fit (with OOT) | ~25min | ~28GB |
+| 26K x 14,468 | 50 (subset test) | ~18s | ~4GB |
+| 26K x 14,468 | Pipeline fit (50 features, with OOT) | ~1.5s | ~4GB |
+
+---
+
+## Best Practices
+
+### 1. Complete Analysis Workflow
+
+```python
+from rulelift import VariableAnalyzer, RuleMiningPipeline
+
+# Step 1: Pipeline one-click analysis
+pipeline = RuleMiningPipeline(df, target_col='label', select_max_features=100)
+results = pipeline.fit()
+
+# Step 2: View variable analysis
+top_iv = results.variable_analysis.nlargest(10, 'iv')
+
+# Step 3: View rules
+print(results.single_rules.sort_values('lift', ascending=False).head(10))
+```
+
+### 2. OOT Stability Analysis
+
+```python
+result = analyzer.analyze_all_variables(
+    oot_split_date='2026-02-01',
+    date_col='repay_datetime'
+)
+stable = result[result['psi'] < 0.1]
+print(f"Stable features: {len(stable)}")
+```
+
+### 3. Rule Description Evaluation
+
+```python
+from rulelift.analysis import evaluate_rule_description
+
+rules = [
+    {'overdue_days': [90, None]},
+    {'history_num': [None, 5]},
+    {'app_type': ['TYPE_A', 'TYPE_B']},
+]
+result = evaluate_rule_description(rules, df, target_col='label')
+print(result[['rule_description', 'badrate', 'lift', 'cum_total_pct']])
+```
+
+---
+
+## Architecture
+
+### Project Structure
+
+```
+rulelift/
+├── pipeline.py                 # RuleMiningPipeline
+├── analysis/                   # Analysis module
+│   ├── variable_analysis.py    # VariableAnalyzer
+│   ├── rule_analysis.py        # Rule evaluation
+│   └── strategy_analysis.py    # Strategy analysis
+├── mining/                     # Rule mining module
+│   ├── single_feature.py       # SingleFeatureRuleMiner
+│   ├── multi_feature.py        # MultiFeatureRuleMiner
+│   ├── tree_rule_extractor.py  # TreeRuleExtractor (dt/rf/gbdt/chi2/isf)
+│   ├── decision_tree.py        # DecisionTreeRuleExtractor
+│   └── rule_validator.py       # RuleValidator + RuleValidatorMixin
+├── metrics/                    # Metrics module
+│   ├── basic.py                # Basic metrics (trends, cumulative, correlation)
+│   ├── advanced.py             # Advanced metrics (strategy pair gain)
+│   └── stability.py            # Stability metrics (PSI, stability)
+├── visualization/              # Visualization module
+│   └── rule.py                 # RuleVisualizer + convenience functions
+├── utils/                      # Utility module
+│   ├── binning_calculator.py   # UnifiedBinningCalculator
+│   ├── categorical.py          # Categorical variable processing
+│   ├── data_loader.py          # Example data loader
+│   ├── data_processing.py      # Data preprocessing
+│   ├── validation.py           # Column validation
+│   └── parallel.py             # Parallel executor
+└── base/                       # Base module
+    ├── analyzer_base.py        # BaseAnalyzer, DataQualityChecker
+    └── pipeline_result.py      # RuleMiningResults
+```
+
+---
+
+## FAQ
+
+### Q1: How to choose a binning method?
+
+| Method | Characteristics | Use Case |
+|--------|----------------|----------|
+| `chi2` | Statistical significance, auto-merge | Non-uniform distribution, need business interpretation |
+| `quantile` | Equal-frequency, uniform samples | Relatively uniform distribution |
+
+### Q2: How to interpret IV/KS/PSI?
+
+| Metric | Strong | Medium | Weak |
+|--------|--------|--------|------|
+| IV | > 0.3 | 0.1~0.3 | < 0.1 |
+| KS | > 0.3 | 0.2~0.3 | < 0.2 |
+| PSI | < 0.1 (stable) | 0.1~0.25 | > 0.25 |
+
+### Q3: DecisionTreeRuleExtractor dtype error?
+
+v1.5.1 auto-excludes datetime/timedelta columns. No manual handling needed.
+
+### Q4: TreeRuleExtractor.evaluate_rules() parameter error?
+
+`TreeRuleExtractor.evaluate_rules()` takes no arguments:
+```python
+extractor.train()
+rules = extractor.extract_rules()
+result = extractor.evaluate_rules()  # Correct: no arguments
+```
+
+### Q5: What about the `isf` (Isolation Forest) algorithm?
+
+The `isf` algorithm discovers risk rules through anomaly detection. Note that `evaluate_rules()` is not supported for `isf`. Use `extract_rules()` to get rules, then evaluate them separately with `evaluate_rule_description()`.
+
+---
+---
+
+## License
+
+MIT License
+
+---
+
+## Contact
+
+- GitHub: https://github.com/aialgorithm/rulelift
+- Issues: https://github.com/aialgorithm/rulelift/issues
+- Email: 15880982687@qq.com
+
 
 ## 作者
 
